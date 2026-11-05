@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Tuyamika",
+    "slug": "tuyamika",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "tuyamika",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F8F4EC",
+    "splash": {
+      "backgroundColor": "#E8DCD0",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "zm.tuyamika.app"
+    },
+    "android": {
+      "package": "zm.tuyamika.app",
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

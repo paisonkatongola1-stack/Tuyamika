@@ -4,3 +4,5 @@ data/
 dist/
 *.log
 coverage/
+.expo/
+.DS_Store
