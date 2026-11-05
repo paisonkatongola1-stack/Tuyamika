@@ -25,7 +25,7 @@ export function registryItemView(item) {
     category: item.category,
     price_cents: item.unit_price,
     quantity: item.quantity,
-    variant: item.variant ? JSON.parse(item.variant) : null,
+    variant: item.variant == null ? null : typeof item.variant === 'string' ? JSON.parse(item.variant) : item.variant,
     notes: item.notes ?? null,
     status: item.status,
     purchased_by: item.purchased_by ?? null,

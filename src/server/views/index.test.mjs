@@ -31,6 +31,9 @@ describe('registryItemView', () => {
   it('handles null variant', () => {
     assert.equal(registryItemView({ id: 'x', variant: null }).variant, null);
   });
+  it('passes through already-parsed variant objects', () => {
+    assert.deepEqual(registryItemView({ id: 'x', variant: { size: 'L' } }).variant, { size: 'L' });
+  });
 });
 
 describe('surprise masking', () => {
