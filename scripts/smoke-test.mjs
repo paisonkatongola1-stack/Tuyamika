@@ -1,15 +1,54 @@
 #!/usr/bin/env node
-// End-to-end smoke test. Requires server running (npm start). Resets demo DB first (--force) for determinism.
-import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+// End-to-end smoke test. By default spawns its own disposable server on a scratch port so
+// rate limiters and secrets stay deterministic; sets BASE_URL to reuse an existing server.
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve, join } from 'node:path';
 import process from 'node:process';
 
-const B = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+const external = process.env.BASE_URL || '';
+const B = external || `http://localhost:${process.env.SMOKE_PORT || 3199}`;
 
-const seeded = spawnSync(process.execPath, [resolve(process.cwd(), 'scripts/seed-demo.mjs'), '--force'], { stdio: 'inherit' });
-if (seeded.status !== 0) {
-  console.error('seed --force failed; cannot run smoke test');
-  process.exit(1);
+let server = null;
+let runtimeDir = null;
+
+async function startScratchServer() {
+  runtimeDir = mkdtempSync(join(tmpdir(), 'tuyamika-smoke-'));
+  const port = +B.split(':').pop();
+  const seeded = spawnSync(process.execPath, [resolve(process.cwd(), 'scripts/seed-demo.mjs'), '--force'], {
+    stdio: 'inherit',
+    env: { ...process.env, DATA_DIR: runtimeDir },
+  });
+  if (seeded.status !== 0) {
+    console.error('seed --force failed; cannot run smoke test');
+    process.exit(1);
+  }
+  server = spawn(process.execPath, [resolve(process.cwd(), 'bin/server.mjs')], {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      PORT: String(port),
+      JWT_SECRET: 'smoke-only-secret',
+      DATA_DIR: runtimeDir,
+      RL_AUTH_MAX: '100000',
+      RL_GUEST_MAX: '100000',
+      RL_PAY_MAX: '100000',
+    },
+  });
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    try {
+      const probe = await fetch(`${B}/healthz`);
+      if (probe.ok) return;
+    } catch { /* retry */ }
+  }
+  server.kill('SIGTERM');
+  throw new Error('scratch smoke server failed to become healthy');
+}
+
+if (!external) {
+  await startScratchServer();
 }
 
 const results = [];
@@ -36,10 +75,11 @@ let r = await api('POST', '/api/auth/signup', { body: { email: 'own@t.test', pas
 if (r.status === 409) r = await api('POST', '/api/auth/login', { body: { email: 'own@t.test', password: 'password123' } });
 const ownerToken = r.json.token;
 log('signup ok', r.status, !!ownerToken && r.status === 201);
-const verifyUrl = r.json.stubs?.verification?.match(/GET (\/api\/auth\/verify\/[\w./]+)/)?.[1];
+const verifyUrl = r.json.stubs?.verification?.match(/GET (\/api\/auth\/verify\/[A-Za-z0-9_.\-/]+)/)?.[1];
 if (verifyUrl) {
   const sessionAsVerify = await api('GET', '/api/registries', { token: r.json.token });
   const v = await api('GET', verifyUrl);
+  if (v.status !== 200) console.error('verify failed status', v.status, 'body', v.raw, 'verifyUrl was', verifyUrl);
   log('verify stub flips verified', v.status, v.json.ok === true && sessionAsVerify.status === 200);
 }
 
@@ -54,6 +94,10 @@ log('4th registry blocked (free tier)', blocked.status, blocked.status === 403);
 // 3 seeded share page
 const shareToken = 'demo-share-2026';
 const shareReg = await api('GET', `/api/r/${shareToken}`);
+if (shareReg.status !== 200) {
+  console.error('guest share fetch failed with status', shareReg.status, 'body:', JSON.stringify(shareReg).slice(0, 300));
+  process.exit(1);
+}
 const seedItems = shareReg.json.registry.items;
 log('guest sees seeded share page', shareReg.status, shareReg.status === 200 && seedItems.length === 3 && seedItems.every((i) => i.status === 'available'));
 const item = seedItems[0];
@@ -135,4 +179,6 @@ log('tino 3rd ok 4th blocked', `${c.status}/${c2.status}`, c.status === 201 && c
 const failed = results.filter((x) => !x.ok);
 console.log('----');
 console.log(`${results.length - failed.length}/${results.length} passed${failed.length ? `, failed: ${failed.map((f) => f.name).join(', ')}` : ''}`);
+if (server) server.kill('SIGTERM');
+if (runtimeDir) rmSync(runtimeDir, { recursive: true, force: true });
 process.exit(failed.length ? 1 : 0);

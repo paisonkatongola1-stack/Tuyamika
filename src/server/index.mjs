@@ -10,11 +10,30 @@ import { paymentRouter } from './routes/payments.mjs';
 import { retailerRouter } from './routes/retailer.mjs';
 import { adminRouter } from './routes/admin.mjs';
 import { notificationsRouter } from './routes/notifications.mjs';
+import { catalogRouter } from './routes/catalog.mjs';
 import { fail } from './lib/db.mjs';
 import { sweepExpired } from './lib/reservation.mjs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const staticRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'public');
 
 const app = express();
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    }
+  }
+}));
 app.use(cors());
 app.use(express.json());
 if (process.env.NODE_ENV !== 'test') app.use(morgan('short'));
@@ -29,8 +48,16 @@ app.use('/api', paymentRouter);
 app.use('/api/retailer', retailerRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api', catalogRouter);
 
-app.use((req, res, next) => next(fail(404, 'not found')));
+app.use(express.static(staticRoot));
+
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api/') && !req.path.startsWith('/r/') && req.accepts('html')) {
+    return res.sendFile(path.join(staticRoot, 'index.html'));
+  }
+  next(fail(404, 'not found'));
+});
 
 app.use((err, req, res, next) => {
   const status = err.status || 500;

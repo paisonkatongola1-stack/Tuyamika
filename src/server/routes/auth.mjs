@@ -10,7 +10,9 @@ import { authLimiter } from '../middleware/ratelimit.mjs';
 const VERIFY_TTL = `${process.env.VERIFY_EMAIL_TTL_HOURS || 24}h`;
 
 export function signVerifyToken(userId) {
-  return jwt.sign({ sub: userId, kind: 'verify' }, JWT_SECRET, { expiresIn: VERIFY_TTL });
+  const token = jwt.sign({ sub: userId, kind: 'verify' }, JWT_SECRET, { expiresIn: VERIFY_TTL });
+  console.log(`verify_token: issued for user ${userId} expires ${VERIFY_TTL}`);
+  return token;
 }
 
 export const authRouter = Router();

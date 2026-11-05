@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  smoke:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,11 +21,25 @@ jobs:
       - name: Lint
         run: npm run lint
 
+  test:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
       - name: Syntax check
         run: bin/syntax-check.sh
 
-      - name: Seed demo DB
-        run: npm run db:seed
+      - name: Unit tests
+        run: npm run test:unit
 
-      - name: Smoke test against running server
-        run: bin/run-smoke.sh
+      - name: Smoke test (self-spawned server)
+        run: npm test

@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 
 function lane(name, { max, windowMinutes }) {
   const windowMs = windowMinutes * 60_000;
@@ -9,9 +9,10 @@ function lane(name, { max, windowMinutes }) {
     legacyHeaders: false,
     keyGenerator: (req) => {
       const tokenUser = req.user?.id;
-      return tokenUser ?? req.ip;
+      return tokenUser ?? ipKeyGenerator(req.ip);
     },
     handler: (req, res) => {
+      console.log(`rate_limit_block: ${name} exceeded for key ${req.ip} (user=${req.user?.id || 'N/A'})`);
       res.status(429).json({ error: 'too many requests', lane: name, retry_after_seconds: Math.ceil(windowMs / 1000) });
     },
   });

@@ -50,24 +50,39 @@ export const orderView = (o) => ({
   updated_at: o.updated_at,
 });
 
+function itemLabel(it) {
+  const v = it.variantLabel
+    ? it.variantLabel
+    : it.variant == null || it.variant === 'null'
+      ? null
+      : (typeof it.variant === 'string' && it.variant.startsWith('{') ? JSON.parse(it.variant) : it.variant);
+  const parts = v && typeof v === 'object' ? [v.size, v.color].filter(Boolean) : v ? [String(v)] : [];
+  return parts.join(' / ');
+}
+
 export function guestRegistryPage(reg, items) {
   const list = items
     .map(
-      (it) => `<li><strong>${esc(it.title)}</strong> (${esc(it.variantLabel || '')}) — $${(it.unit_price / 100).toFixed(2)} × ${it.quantity} — <em>${esc(it.status)}</em></li>`
+      (it) => {
+        const label = itemLabel(it);
+        const money = `$${((it.price_cents ?? it.unit_price) / 100).toFixed(2)}`;
+        return `<li><strong>${esc(it.title)}</strong>${label ? ` <span class="muted">(${esc(label)})</span>` : ''} — <span class="money">${money}</span> × ${it.quantity} — <em>${esc(it.status)}</em></li>`;
+      }
     )
     .join('');
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(reg.name)}</title></head>
-<body style="font-family:system-ui,sans-serif;max-width:640px;margin:2rem auto;padding:0 1rem">
+<title>Tuyamika — ${esc(reg.name)}</title><link rel="stylesheet" href="/styles.css"></head>
+<body><main class="card">
 <h1>${esc(reg.name)}</h1>
 ${reg.message ? `<p>${esc(reg.message)}</p>` : ''}
-${reg.event_date ? `<p>Event date: ${esc(reg.event_date)}</p>` : ''}
+${reg.event_date ? `<p class="muted">Event date: ${esc(reg.event_date)}</p>` : ''}
 <ul>${list || '<li>No gifts listed yet.</li>'}</ul>
-<p><small>Registry ID: ${esc(reg.id)}</small></p>
-</body></html>`;
+<p><small>Tuyamika — The Beauty of Giving, The Joy of Sharing</small></p>
+</main></body></html>`;
 }
 
 export function publicRegistryView(reg, items) {
+  const masked = items.map(registryItemView).map((it) => (reg.surprise ? maskPurchase(it) : it));
   return {
     id: reg.id,
     name: reg.name,
@@ -80,6 +95,6 @@ export function publicRegistryView(reg, items) {
     expires_at: reg.expires_at ?? null,
     status: reg.status,
     share_token: reg.share_token,
-    items: items.map(registryItemView),
+    items: masked,
   };
 }

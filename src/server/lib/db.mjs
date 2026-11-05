@@ -67,9 +67,18 @@ export const q = {
   getUserByIdOrPhone: () => db.prepare('SELECT * FROM users WHERE email = ? OR phone = ?'),
 };
 
+export function runMigrations() {
+  const tableNames = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+  const existingTables = tableNames.map(t => t.name);
+  console.log(`db_migrate: current tables: ${JSON.stringify(existingTables)}`);
+  db.exec(fs.readFileSync(path.join(root, 'src', 'data', 'schema.sql'), 'utf8'));
+  console.log('db_migrate: schema applied');
+}
+
 export function fail(status, message, extra = {}) {
   const err = new Error(message);
   err.status = status;
   Object.assign(err, extra);
+  console.error(`db_error: ${status} ${message} ${JSON.stringify(extra)}`);
   return err;
 }

@@ -12,7 +12,8 @@
     "dev": "node --watch bin/server.mjs",
     "db:seed": "node scripts/seed-demo.mjs",
     "test": "node scripts/smoke-test.mjs",
-    "lint": "eslint src/ scripts/ bin/"
+    "lint": "eslint src/ scripts/ bin/",
+    "test:unit": "node --test \"src/server/**/*.test.mjs\""
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
