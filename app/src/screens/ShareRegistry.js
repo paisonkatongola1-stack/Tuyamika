@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Share as RnShare } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -8,13 +8,18 @@ import { TopHeader } from '../components/Headers';
 import { PrimaryButton, GhostButton } from '../components/UI';
 import { Wordmark } from '../components/Logo';
 import { useStore } from '../store';
-import { PRODUCTS } from '../data';
 
 export default function ShareRegistry({ route, navigation }) {
   const title = route.params?.title || 'Your registry';
+  const apiError = route.params?.error;
   const { registries } = useStore();
   const reg = registries[registries.length - 1] || {};
   const link = `https://tuyamika.co.zm/r/${reg.shareToken || 'TUYA-?'}`;
+
+  const shareNow = () => {
+    if (link.includes('TUYA-?')) return;
+    RnShare.share({ title: `${title} — Tuyamika registry`, message: `🎁 Our registry is live! ${link}` }).catch(() => {});
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['top']}>
@@ -32,18 +37,25 @@ export default function ShareRegistry({ route, navigation }) {
             <Text style={st.qrCaption}>Scan to view “{title}”</Text>
           </LinearGradient>
 
+          {apiError ? (
+            <View style={[st.linkBox, { borderColor: '#c0392b' }]}>
+              <Text style={st.linkLabel}>Registry issue</Text>
+              <Text style={st.linkTxt}>{apiError}</Text>
+            </View>
+          ) : null}
+
           <View style={[st.linkBox, shadow]}>
             <Text style={st.linkLabel}>Registry link</Text>
             <Text style={st.linkTxt} selectable>{link}</Text>
           </View>
 
           <View style={st.btnRow}>
-            <GhostButton label="Copy link" icon="copy-outline" onPress={() => {}} />
-            <GhostButton label="WhatsApp" icon="logo-whatsapp" onPress={() => {}} />
+            <GhostButton label="Share link" icon="share-social-outline" onPress={shareNow} />
+            <GhostButton label="QR hub page" icon="qr-code-outline" onPress={shareNow} />
           </View>
           <View style={st.btnRow}>
-            <GhostButton label="Instagram" icon="logo-instagram" onPress={() => {}} />
-            <GhostButton label="Email" icon="mail-outline" onPress={() => {}} />
+            <GhostButton label="WhatsApp" icon="logo-whatsapp" onPress={shareNow} />
+            <GhostButton label="Email" icon="mail-outline" onPress={shareNow} />
           </View>
 
           <PrimaryButton label="Done" style={{ alignSelf: 'stretch', marginTop: 16 }} onPress={() => navigation.popToTop()} />

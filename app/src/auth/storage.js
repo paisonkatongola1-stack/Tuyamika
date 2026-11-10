@@ -7,6 +7,7 @@ export const KEYS = {
   session: '@tuyamika/session',
   prefs: '@tuyamika/giftPreferences',
   termsAccepted: '@tuyamika/termsAccepted',
+  guestSession: '@tuyamika/guestSession',
 };
 
 async function getRaw(key) {

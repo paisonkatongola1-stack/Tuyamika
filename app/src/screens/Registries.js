@@ -6,12 +6,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, S, shadow } from '../theme';
 import { PrimaryButton } from '../components/UI';
 import { useStore } from '../store';
-import { PRODUCTS } from '../data';
-
-const find = (id) => PRODUCTS.find((p) => p.id === id);
 
 export default function Registries({ navigation }) {
   const { registries, campaigns } = useStore();
+  const PRODUCTS = useStore().products;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['top']}>

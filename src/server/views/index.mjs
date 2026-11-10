@@ -60,7 +60,7 @@ function itemLabel(it) {
   return parts.join(' / ');
 }
 
-export function guestRegistryPage(reg, items) {
+export function guestRegistryPage(reg, items, opts = {}) {
   const list = items
     .map(
       (it) => {
@@ -70,6 +70,9 @@ export function guestRegistryPage(reg, items) {
       }
     )
     .join('');
+  const qr = opts.qr_svg
+    ? `<div class="share-qr">${opts.qr_svg}<small>Scan to open this registry</small></div>`
+    : '';
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tuyamika — ${esc(reg.name)}</title><link rel="stylesheet" href="/styles.css"></head>
 <body><main class="card">
@@ -77,6 +80,7 @@ export function guestRegistryPage(reg, items) {
 ${reg.message ? `<p>${esc(reg.message)}</p>` : ''}
 ${reg.event_date ? `<p class="muted">Event date: ${esc(reg.event_date)}</p>` : ''}
 <ul>${list || '<li>No gifts listed yet.</li>'}</ul>
+${qr}
 <p><small>Tuyamika — The Beauty of Giving, The Joy of Sharing</small></p>
 </main></body></html>`;
 }

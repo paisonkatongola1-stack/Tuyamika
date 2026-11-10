@@ -7,12 +7,12 @@ import { C, F, S, shadow } from '../theme';
 import { HomeHeader } from '../components/Headers';
 import { Tile, SectionHeader, PrimaryButton, ProductImage, Price, Stars } from '../components/UI';
 import { useStore, useActions } from '../store';
-import { PRODUCTS, SPECIALS } from '../data';
-
-const find = (id) => PRODUCTS.find((p) => p.id === id);
 
 export default function Home({ navigation }) {
-  const { user, notifications, events, campaigns, orders, money } = useStore();
+  const storeData = useStore();
+  const PRODUCTS = storeData.products;
+  const SPECIALS = storeData.specials;
+  const { user, notifications, events, campaigns, orders, money } = storeData;
   const unread = notifications.filter((n) => n.unread).length;
   const nextEvent = events.find((e) => e.status === 'upcoming');
 

@@ -4,9 +4,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, S, shadow } from '../theme';
 import { ProductImage, Price, Stars, PressCard } from '../components/UI';
-import { PRODUCTS, CATEGORIES } from '../data';
+import { CATEGORIES } from '../data';
+import { useStore } from '../store';
 
 export default function Gifts({ navigation, route }) {
+  const { products: PRODUCTS } = useStore();
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('all');
   const [sort, setSort] = useState('pop');

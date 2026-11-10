@@ -1,4 +1,5 @@
 import { db, uid, now, fail } from './db.mjs';
+import { queueNotify } from './notifier.mjs';
 
 export const WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || 'dev-webhook-secret';
 
@@ -63,6 +64,15 @@ export function applyPaymentEvent({ order_id, event_id, type = 'payment.succeede
   });
   tx();
 
+  // Milestone 3: every paid order starts a fulfilment record.
+  const ff = db.prepare('SELECT id FROM fulfilment_records WHERE order_id = ?').get(order_id);
+  if (!ff) {
+    db.prepare(
+      `INSERT INTO fulfilment_records (id, order_id, hub_receipt, wrapping, decoration, proof_of_delivery, status, created_at, updated_at)
+       VALUES (?, ?, 0, 0, 0, NULL, 'pending', ?, ?)`
+    ).run(uid(), order_id, now(), now());
+  }
+
   notifyOwners(order_id);
   return { ok: true, order_status: 'paid' };
 }
@@ -77,6 +87,7 @@ function notifyOwners(order_id) {
        WHERE oi.order_id = ?`
     )
     .all(order_id);
+  if (!rows.length) return { ok: false };
   const titles = db
     .prepare(
       `SELECT p.title, oi.quantity
@@ -89,11 +100,21 @@ function notifyOwners(order_id) {
   const message = titles.length
     ? `Reserved gifts purchased for ${rows[0].registry_name}: ${titles.map((t) => `${t.quantity}x ${t.title}`).join(', ')}`
     : `Reserved gifts purchased for ${rows[0].registry_name}`;
+  const ownerEmail = db.prepare('SELECT email FROM users WHERE id = ?').get(rows[0]?.owner_id);
   for (const reg of rows) {
     if (reg.surprise) continue;
     db.prepare(
       `INSERT INTO notifications (id, recipient_id, channel, trigger, message, link, read, created_at)
        VALUES (?, ?, 'inapp', 'order.paid', ?, ?, 0, ?)`
     ).run(uid(), reg.owner_id, message, `/r/${reg.id}`, now());
+    if (ownerEmail) {
+      queueNotify({
+        recipient_id: reg.owner_id,
+        channel: 'email',
+        trigger: 'order.paid',
+        recipient: ownerEmail.email,
+        message,
+      });
+    }
   }
 }

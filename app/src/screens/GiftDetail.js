@@ -5,10 +5,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { C, F, S, shadow } from '../theme';
 import { ProductImage, Price, Stars, PrimaryButton, GhostButton } from '../components/UI';
-import { PRODUCTS } from '../data';
+import { useStore } from '../store';
 
 export default function GiftDetail({ route, navigation }) {
   const id = route.params?.id || 'p1';
+  const PRODUCTS = useStore().products;
   const p = PRODUCTS.find((x) => x.id === id);
 
   if (!p) return null;

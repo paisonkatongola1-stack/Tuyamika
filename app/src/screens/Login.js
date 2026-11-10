@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
-import { Text, Pressable, StyleSheet } from 'react-native';
+import { Text, Pressable, StyleSheet, View } from 'react-native';
 import { C, F } from '../theme';
 import { AuthFrame, FormNotice } from '../components/AuthFrame';
-import { Field, PrimaryButton } from '../components/UI';
+import { Field, PrimaryButton, GhostButton } from '../components/UI';
 import { validateEmail } from '../auth/validate';
 import { useAuth } from '../auth/AuthProvider';
 
 export default function Login({ navigation }) {
-  const { signIn } = useAuth();
+  const { signIn, signInWithGoogle, canGoogleSignIn } = useAuth();
   const [values, setValues] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
 
   function setField(key, value) {
     setValues((current) => ({ ...current, [key]: value }));
@@ -83,6 +84,32 @@ export default function Login({ navigation }) {
         style={{ marginTop: 18 }}
       />
 
+      {canGoogleSignIn ? (
+        <View style={st.dividerRow}>
+          <View style={st.divider} />
+          <Text style={st.dividerTxt}>or</Text>
+          <View style={st.divider} />
+        </View>
+      ) : null}
+      {canGoogleSignIn ? (
+        <GhostButton
+          label="Continue with Google"
+          icon="logo-google"
+          onPress={async () => {
+            setFormError('');
+            setGoogleSubmitting(true);
+            try {
+              const result = await signInWithGoogle();
+              if (result.error) setFormError(result.error);
+            } catch (error) {
+              setFormError(error instanceof Error ? error.message : 'We could not sign you in. Please try again.');
+            } finally {
+              setGoogleSubmitting(false);
+            }
+          }}
+        />
+      ) : null}
+
       <Text style={st.registerPrompt}>
         New to Tuyamika?{' '}
         <Text
@@ -108,4 +135,7 @@ const st = StyleSheet.create({
   link: { fontFamily: F.bodyBold, fontSize: 12, color: C.bronze },
   registerPrompt: { fontFamily: F.body, fontSize: 12, color: C.walnut, textAlign: 'center', marginTop: 22 },
   devNote: { fontFamily: F.body, fontSize: 10.5, lineHeight: 16, color: C.walnut, textAlign: 'center', marginTop: 24 },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 14 },
+  divider: { flex: 1, height: 1, backgroundColor: C.champagne },
+  dividerTxt: { fontFamily: F.bodyMid, fontSize: 11.5, color: C.walnut, marginHorizontal: 12 },
 });

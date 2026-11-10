@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createAuthClient } from './authClient.js';
+import { googleSignInSupported, isFirebaseAppConfigured } from './firebaseClient.js';
 
 const AuthCtx = createContext(null);
 export const authClient = createAuthClient();
@@ -67,6 +68,13 @@ export function AuthProvider({ children, client = authClient }) {
         setState({ loading: false, loadError: null, session: result.session, user: result.user, guest: false });
         return result;
       },
+      async signInWithGoogle() {
+        if (!client.signInWithGoogle) return { error: 'Google sign in is not available in this build.' };
+        const result = await client.signInWithGoogle();
+        if (result.error) return result;
+        setState({ loading: false, loadError: null, session: result.session, user: result.user, guest: false });
+        return result;
+      },
       async signOut() {
         const result = await client.signOut();
         if (result.error) return result;
@@ -96,10 +104,11 @@ export function AuthProvider({ children, client = authClient }) {
     () => ({
       ...state,
       authMode: client.name || 'custom',
+      canGoogleSignIn: typeof client.signInWithGoogle === 'function' && googleSignInSupported && isFirebaseAppConfigured(),
       reloadSession,
       ...actions,
     }),
-    [actions, client.name, reloadSession, state]
+    [actions, client, reloadSession, state]
   );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;

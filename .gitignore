@@ -6,3 +6,6 @@ dist/
 coverage/
 .expo/
 .DS_Store
+
+# local opencode project skills (50M photo assets not for the repo)
+.opencode/

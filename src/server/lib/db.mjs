@@ -72,6 +72,11 @@ export function runMigrations() {
   const existingTables = tableNames.map(t => t.name);
   console.log(`db_migrate: current tables: ${JSON.stringify(existingTables)}`);
   db.exec(fs.readFileSync(path.join(root, 'src', 'data', 'schema.sql'), 'utf8'));
+  const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (!userCols.includes('firebase_uid')) {
+    db.exec('ALTER TABLE users ADD COLUMN firebase_uid TEXT');
+    console.log('db_migrate: users.firebase_uid added');
+  }
   console.log('db_migrate: schema applied');
 }
 

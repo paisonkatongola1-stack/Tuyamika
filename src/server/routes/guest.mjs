@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import z from 'zod';
+import QRCode from 'qrcode';
 import { db, uid, now, fail } from '../lib/db.mjs';
 import { sweepExpired, releaseReservation, createReservation } from '../lib/reservation.mjs';
 import { createIntent } from '../lib/payment.stub.mjs';
+import { createProviderIntent, providerEnabled } from '../lib/payment.momo.mjs';
 import { publicRegistryView, guestRegistryPage, reservationView, orderView, registryItemView } from '../views/index.mjs';
 import { guestLimiter } from '../middleware/ratelimit.mjs';
 
@@ -27,11 +29,22 @@ function itemsFor(registryId) {
     .all(registryId);
 }
 
-shareRouter.get('/r/:token', (req, res) => {
+shareRouter.get('/r/:token', (req, res, next) => {
+  shareHandler(req, res).catch(next);
+});
+
+async function shareHandler(req, res) {
   const reg = registryByToken(req.params.token);
   const items = itemsFor(reg.id).map(registryItemView);
-  res.type('html').send(guestRegistryPage(reg, items));
-});
+  let qr_svg = null;
+  try {
+    const base = process.env.APP_PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+    qr_svg = await QRCode.toString(`${base}/r/${reg.share_token}`, { type: 'svg', margin: 1, width: 120 });
+  } catch (err) {
+    console.log(`share_qr_error: ${err.message}`);
+  }
+  res.type('html').send(guestRegistryPage(reg, items, { qr_svg }));
+}
 
 guestRouter.get('/r/:token', (req, res) => {
   sweepExpired();
@@ -86,7 +99,11 @@ const Checkout = z.object({
   special_instructions: z.string().optional(),
 });
 
-guestRouter.post('/r/:token/checkout', (req, res) => {
+guestRouter.post('/r/:token/checkout', (req, res, next) => {
+  // providers are async (token + push APIs); fallback keeps the sync path intact
+  Promise.resolve(checkoutHandler(req, res)).catch(next);
+});
+async function checkoutHandler(req, res) {
   sweepExpired();
   const reg = registryByToken(req.params.token);
   const parsed = Checkout.safeParse(req.body);
@@ -99,7 +116,14 @@ guestRouter.post('/r/:token/checkout', (req, res) => {
       order: orderView(existing),
       deduped: true,
       payment: existing.payment_ref
-        ? { payment_ref: existing.payment_ref, status: 'pending', simulate: { method: 'POST', url: '/api/pay/simulate', payment_ref: existing.payment_ref } }
+        ? {
+            payment_ref: existing.payment_ref,
+            status: 'pending',
+            status_url: { method: 'POST', url: `/api/pay/status/${existing.payment_ref}` },
+            ...((process.env.PAYMENT_PROVIDER || 'stub') === 'stub'
+              ? { simulate: { method: 'POST', url: '/api/pay/simulate', payment_ref: existing.payment_ref } }
+              : {}),
+          }
         : null,
     });
   }
@@ -120,7 +144,17 @@ guestRouter.post('/r/:token/checkout', (req, res) => {
 
   const order_id = uid();
   const t = now();
-  const intent = createIntent({ order_id, amount_cents: total, currency: 'USD' });
+  let intent;
+  if (providerEnabled() && (process.env.PAYMENT_PROVIDER || 'stub') !== 'stub') {
+    intent = await createProviderIntent({
+      order_id,
+      amount_cents: total,
+      currency: 'USD',
+      payer_phone: b.recipient_contact || b.recipient_name,
+    });
+  } else {
+    intent = createIntent({ order_id, amount_cents: total, currency: 'USD' });
+  }
 
   const tx = db.transaction(() => {
     db.prepare(
@@ -138,8 +172,15 @@ guestRouter.post('/r/:token/checkout', (req, res) => {
   });
   tx();
 
+  const provider = process.env.PAYMENT_PROVIDER || 'stub';
+  const payment = {
+    ...intent,
+    status_url: { method: 'POST', url: `/api/pay/status/${intent.payment_ref}` },
+    ...(provider === 'stub' ? { simulate: { method: 'POST', url: '/api/pay/simulate', payment_ref: intent.payment_ref } } : {}),
+  };
+
   res.status(201).json({
     order: { ...orderView(db.prepare('SELECT * FROM orders WHERE id = ?').get(order_id)), reservation_ids: resvs.map((r) => r.reservation_id) },
-    payment: { ...intent, simulate: { method: 'POST', url: '/api/pay/simulate', payment_ref: intent.payment_ref } },
+    payment,
   });
-});
+}

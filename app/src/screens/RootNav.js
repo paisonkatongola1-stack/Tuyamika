@@ -1,5 +1,5 @@
 import React from 'react';
-import { ActivityIndicator, Text, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, Text, View, StyleSheet, Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,9 +13,16 @@ import Login from './Login';
 import PasswordRecovery from './PasswordRecovery';
 import ProfileSetup from './ProfileSetup';
 import GiftPreferences from './GiftPreferences';
+import GuestShare from './GuestShare';
 import MainNav from './MainNav';
 
 const Stack = createNativeStackNavigator();
+
+// QR codes / share links land here: tuyamika://r/<token>
+const linking = {
+  prefixes: ['tuyamika://', 'https://tuyamika.co.zm', 'https://tuyamika.co.zw'],
+  config: { screens: { Main: { screens: { GuestShare: 'r/:token' } } } },
+};
 
 function AuthenticationStack() {
   return (
@@ -68,7 +75,7 @@ export default function RootNav() {
       : 'authentication';
 
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking}>
       <Stack.Navigator key={mode} screenOptions={{ headerShown: false }}>
         {mode === 'main' ? (
           <Stack.Screen name="Main" component={MainNav} />
@@ -79,6 +86,7 @@ export default function RootNav() {
         ) : (
           <Stack.Screen name="Authentication" component={AuthenticationStack} />
         )}
+        <Stack.Screen name="GuestShare" component={GuestShare} />
       </Stack.Navigator>
     </NavigationContainer>
   );

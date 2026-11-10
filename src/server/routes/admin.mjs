@@ -46,3 +46,25 @@ adminRouter.get('/orders', (req, res) => {
 adminRouter.get('/logs', (req, res) => {
   res.json({ logs: db.prepare('SELECT * FROM admin_logs ORDER BY created_at DESC LIMIT 100').all() });
 });
+
+adminRouter.get('/errors', (req, res) => {
+  const severity = req.query.source;
+  const rows = severity
+    ? db.prepare('SELECT * FROM error_logs WHERE source = ? ORDER BY created_at DESC LIMIT 200').all(severity)
+    : db.prepare('SELECT * FROM error_logs ORDER BY created_at DESC LIMIT 200').all();
+  const counts = Object.fromEntries(
+    db.prepare("SELECT source, COUNT(*) n FROM error_logs GROUP BY source").all().map((r) => [r.source, r.n])
+  );
+  res.json({ errors: rows, counts });
+});
+
+adminRouter.delete('/errors', (req, res) => {
+  const r = db.prepare('DELETE FROM error_logs').run();
+  res.json({ ok: true, deleted: r.changes });
+});
+
+adminRouter.delete('/errors/:id', (req, res) => {
+  const r = db.prepare('DELETE FROM error_logs WHERE id = ?').run(req.params.id);
+  if (!r.changes) throw fail(404, 'error log not found');
+  res.json({ ok: true });
+});

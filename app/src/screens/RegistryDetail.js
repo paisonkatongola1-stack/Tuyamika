@@ -12,7 +12,7 @@ const STATUS_LABEL = { available: ['Available', C.available], reserved: ['Reserv
 const ICONS_BY_SLOT = { available: 'heart-circle-outline', reserved: 'hourglass-outline', purchased: 'checkmark-circle-sharp' };
 
 export default function RegistryDetail({ route, navigation }) {
-  const { registries, money } = useStore();
+  const { registries, money, products: PRODUCTS } = useStore();
   const { reserveRegistryItem } = useActions();
   const reg = registries.find((r) => r.id === route.params?.id);
 
@@ -57,7 +57,14 @@ export default function RegistryDetail({ route, navigation }) {
 
           <View style={{ paddingHorizontal: S.screen }}>
             {reg.items.map((it) => {
-              const p = PRODUCTS.find((pp) => pp.id === it.productId);
+              const p = PRODUCTS.find((pp) => pp.id === it.productId) || {
+                id: it.productId,
+                name: it.productTitle || 'Gift',
+                price: it.price || 0,
+                a: reg.coverA || '#B18A52',
+                b: reg.coverB || '#E8DCD0',
+                icon: 'gift-sharp',
+              };
               const pending = it.slots.some((s) => s === 'reserved');
               return (
                 <View key={it.id} style={[st.gift, shadow]}>
@@ -74,7 +81,7 @@ export default function RegistryDetail({ route, navigation }) {
                     <Text style={st.giftStatus}>{it.slots.filter((s) => s === 'available').length} of {it.slots.length} still available</Text>
                   </View>
                   {it.slots.some((s) => s === 'available') ? (
-                    <Pressable onPress={() => navigation.navigate('Checkout', { registryItemId: it.id, name: p.name, price: p.price, cover: p.a })} style={st.reserveBtn}>
+                    <Pressable onPress={() => navigation.navigate('Checkout', { registryItemId: it.id, shareToken: reg.shareToken, name: p.name, price: p.price, cover: p.a })} style={st.reserveBtn}>
                       <Text style={st.reserveBtnTxt}>Reserve</Text>
                     </Pressable>
                   ) : (

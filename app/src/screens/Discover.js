@@ -4,8 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { C, F, S, shadow } from '../theme';
 import { Stars } from '../components/UI';
+import { useStore } from '../store';
 
 export default function Discover({ navigation }) {
+  const PROVIDERS = useStore().providers;
   const [q, setQ] = useState('');
   const [tab, setTab] = useState('All');
 

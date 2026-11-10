@@ -19,8 +19,8 @@ const METHODS = [
 const W = Dimensions.get('window').width;
 
 export default function Payment({ route, navigation }) {
-  const { money, RESERVE_MINUTES } = useStore();
-  const { purchaseRegistryItem, contribute, placeOrder } = useActions();
+  const { money, RESERVE_MINUTES, apiMode } = useStore();
+  const { purchaseRegistryItem, contribute, placeOrder, guestCheckoutAndPay } = useActions();
   const p = route.params || {};
   const item = p.item;
   const total = p.total || p.contribution?.amount || 850;
@@ -35,8 +35,29 @@ export default function Payment({ route, navigation }) {
 
   const paymentAmount = isContribution ? Number(amount || 0) : total;
 
-  const pay = () => {
+  const pay = async () => {
     setStep(1);
+
+    // Mobile-money bracket: the real provider flow calls the API through
+    // guest checkout + pay status; the mock path keeps the 1800ms simulation.
+    if (isRegistry && apiMode && p.shareToken) {
+      try {
+        const res2 = await guestCheckoutAndPay({
+          shareToken: p.shareToken,
+          registryItemId: p.registryItemId,
+          recipient_name: name || 'Anonymous guest',
+          recipient_address: p.address || '12 Riverside Drive, Lusaka',
+          delivery: p.delivery === 'event' ? 'event' : p.delivery === 'collection' ? 'collection' : 'recipient',
+        });
+        if (res2.error) throw new Error(res2.error);
+        setStep(2);
+        return;
+      } catch (err) {
+        console.log('api payment failed:', err.message);
+        // fall through to the demo confirmation below
+      }
+    }
+
     setTimeout(() => {
       setStep(2);
       if (isRegistry) purchaseRegistryItem(p.registryItemId);

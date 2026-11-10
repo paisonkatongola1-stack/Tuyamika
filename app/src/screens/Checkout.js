@@ -6,12 +6,11 @@ import { C, F, S, shadow } from '../theme';
 import { TopHeader } from '../components/Headers';
 import { PrimaryButton, ProductImage, Price, Field } from '../components/UI';
 import { useStore, useActions } from '../store';
-import { PRODUCTS, SPECIALS } from '../data';
 
 const SHIP = { standard: 60, event: 45, express: 120, collection: 0 };
 
 export default function Checkout({ route, navigation }) {
-  const { money, registries, RESERVE_MINUTES } = useStore();
+  const { money, registries, RESERVE_MINUTES, products: PRODUCTS, specials: SPECIALS } = useStore();
   const { reserveRegistryItem } = useActions();
   const rp = route.params || {};
 
@@ -31,7 +30,14 @@ export default function Checkout({ route, navigation }) {
       if (reg) {
         const it = reg.items.find((i) => i.id === registryItemId);
         const prod = PRODUCTS.find((p) => p.id === it.productId);
-        setItem({ name: prod.name, price: prod.price, a: prod.a, b: prod.b, icon: prod.icon, reg: reg.title, itemId: it.id, variant: it.variant || 'Standard' });
+        setItem(
+          prod
+            ? { name: prod.name, price: prod.price, a: prod.a, b: prod.b, icon: prod.icon, reg: reg.title, itemId: it.id, variant: it.variant || 'Standard' }
+            : { name: it.productTitle || rp.name || 'Registry gift', price: it.price || rp.price || 0, a: rp.cover, b: C.champagne, icon: 'gift-sharp', reg: reg.title, itemId: it.id, variant: it.variant || 'Standard' }
+        );
+      } else if (rp.name) {
+        // guest share flow: the registry lives on the server, not local store
+        setItem({ name: rp.name, price: rp.price, a: rp.cover, b: C.champagne, icon: 'gift-sharp' });
       }
     } else if (specialId) {
       const sp = SPECIALS.find((x) => x.id === specialId);
@@ -113,8 +119,8 @@ export default function Checkout({ route, navigation }) {
 
         <View style={[st.cta, shadow]}>
           <PrimaryButton label={`Proceed to Payment · ${money(total)}`} small onPress={() => {
-            if (registryItemId) reserveRegistryItem(registryItemId);
-            navigation.replace('Payment', { item, total, delivery, address, wrap: wrapFee, registryItemId });
+            if (registryItemId) reserveRegistryItem(registryItemId, { shareToken: rp.shareToken }).then((res2) => { if (res2 && res2.error) console.log('reserve failed:', res2.error); });
+            navigation.replace('Payment', { item, total, delivery, address, wrap: wrapFee, registryItemId, shareToken: rp.shareToken });
           }} />
         </View>
       </View>

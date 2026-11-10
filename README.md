@@ -71,7 +71,8 @@ Seed demo data: Zulwazi Crafts store (products K85–K125), guest share link
 
 ## API surface
 
-- `POST /api/auth/signup|login`, `GET /api/auth/me`, `GET /api/auth/verify/:token`
+- `POST /api/auth/signup|login`, `GET|PATCH /api/auth/me`, `GET /api/auth/verify/:token`
+- `POST /api/auth/firebase`, `GET /api/auth/firebase-config` (optional Firebase/Google sign in)
 - `GET|POST /api/products`, `GET /api/categories` (catalog, public read)
 - `GET|POST|PATCH /api/registries`, `POST|DELETE /api/registries/:id/items`
 - `GET /api/r/:token` (guest JSON), `GET /r/:token` (guest HTML)
@@ -109,7 +110,19 @@ npx expo start          # a Android, i iOS, w web
 EXPO_OFFLINE=1 npx expo start   # if Expo's version check is blocked by network
 ```
 
-Phone demo: install **Expo Go**, scan the QR. Website:
+Auth providers: the app picks a provider at boot.
+
+- `EXPO_PUBLIC_API_BASE_URL` set → live API (`ApiAuthProvider`: signup/login,
+  `PATCH /api/auth/me` profile sync, JWT persisted in SecureStore).
+- else in dev → device-local mock accounts (`LocalAuthProvider`, DEV only).
+- else in release → `UnconfiguredAuthProvider` (signs in are blocked).
+
+Optional Google sign in (web builds): set `EXPO_PUBLIC_FIREBASE_API_KEY`,
+`EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`, `EXPO_PUBLIC_FIREBASE_PROJECT_ID`,
+`EXPO_PUBLIC_FIREBASE_APP_ID` and the matching server side `FIREBASE_*`
+credential keys (see `.env.example`). Google button appears on web only; tokens
+are exchanged at `POST /api/auth/firebase`. Phone demo: install **Expo Go**,
+scan the QR. Website:
 `python3 -m http.server 8080 --directory app/website`. Prebuilt web bundle:
 `python3 -m http.server 8081 --directory app/webapp`.
 

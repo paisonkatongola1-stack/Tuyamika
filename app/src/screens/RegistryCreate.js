@@ -17,15 +17,15 @@ export default function RegistryCreate({ navigation }) {
   const [visibility, setVisibility] = useState('link');
   const [err, setErr] = useState({});
 
-  const save = (publish) => {
+  const save = async (publish) => {
     const e = {};
     if (!title.trim()) e.title = 'Registry name is required';
     if (!occasion) e.occasion = 'Select an occasion';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) e.date = 'Use format YYYY-MM-DD';
     setErr(e);
     if (Object.keys(e).length) return;
-    createRegistry({ title, occasion, date, message, visibility, coverA: '#B18A52', coverB: '#E8DCD0', status: publish ? 'active' : 'draft' });
-    navigation.replace('ShareRegistry', { title });
+    const result = await createRegistry({ title, occasion, date, message, visibility, coverA: '#B18A52', coverB: '#E8DCD0', status: publish ? 'active' : 'draft' });
+    navigation.replace('ShareRegistry', { title, error: result && result.error ? result.error : null });
   };
 
   return (

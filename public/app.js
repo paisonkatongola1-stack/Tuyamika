@@ -1,8 +1,32 @@
+const REMEMBER_KEY = 'tuyamika.remember';
+
+// Private session token: default placement is sessionStorage (cleared when the
+// tab closes). "Keep me signed in" flips to persistent localStorage.
+function tokenStore() {
+  if (localStorage.getItem(REMEMBER_KEY) === '1') return localStorage;
+  return sessionStorage;
+}
+
 const store = {
-  token: localStorage.getItem('tuyamika.token') || null,
+  token: tokenStore().getItem('tuyamika.token') || null,
   user: safeJson(localStorage.getItem('tuyamika.user')),
   money: (v) => '$' + (v / 100).toFixed(2),
 };
+
+// Decode the JWT payload (no verify needed client-side — verify is server work)
+// to surface expiry in the UI before the server rejects the request.
+function tokenExpiry(token) {
+  try {
+    const payload = JSON.parse(decodeURIComponent(escape(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))));
+    return typeof payload.exp === 'number' ? payload.exp : null;
+  } catch { return null; }
+}
+
+function sessionRemaining() {
+  const exp = store.token && tokenExpiry(store.token);
+  if (!exp) return null;
+  return exp - Date.now() / 1000;
+}
 
 function safeJson(s) {
   try { return JSON.parse(s); } catch { return null; }
@@ -23,6 +47,9 @@ const api = {
       const err = new Error(data.error || res.statusText);
       err.status = res.status;
       err.details = data.details;
+      if (res.status === 401 && store.token && !path.startsWith('/auth/')) {
+        handleExpiredSession();
+      }
       throw err;
     }
     return data;
@@ -33,10 +60,20 @@ const api = {
   del(path) { return api.req('DELETE', path); },
 };
 
-function setSession(user, token) {
+function handleExpiredSession() {
+  const hadToken = !!store.token;
+  setSession(null, null);
+  if (!hadToken) return;
+  toast('Your session expired — please sign in again.', 'error');
+  location.hash = '#/login';
+}
+
+function setSession(user, token, remember) {
   store.user = user;
   store.token = token;
-  if (token) localStorage.setItem('tuyamika.token', token); else localStorage.removeItem('tuyamika.token');
+  if (remember !== undefined) localStorage.setItem(REMEMBER_KEY, remember ? '1' : '0');
+  for (const s of [localStorage, sessionStorage]) s.removeItem('tuyamika.token');
+  if (token) tokenStore().setItem('tuyamika.token', token);
   if (user) localStorage.setItem('tuyamika.user', JSON.stringify(user)); else localStorage.removeItem('tuyamika.user');
 }
 
@@ -60,6 +97,38 @@ function banner() {
   node.info = (t) => { node.hidden = false; node.className = 'banner info'; node.textContent = t; };
   node.err = (t) => { node.hidden = false; node.className = 'banner error'; node.textContent = t; };
   return node;
+}
+
+function toast(text, kind = 'info', ms = 4200) {
+  const host = document.getElementById('toasts') || document.body;
+  const t = el('div', { class: 'toast ' + kind, role: 'status' }, icon(kind === 'error' ? 'alert' : 'check'), el('span', null, text));
+  host.append(t);
+  requestAnimationFrame(() => t.classList.add('in'));
+  setTimeout(() => {
+    t.classList.remove('in');
+    setTimeout(() => t.remove(), 350);
+  }, ms);
+}
+
+function icon(name, size = 16) {
+  const paths = {
+    gift: 'M20 6h-2.18c.11-.31.18-.65.18-1a2.996 2.996 0 0 0-5.5-1.65l-.5.67-.5-.68C10.96 2.21 10.25 1.77 9.25 1.77c-1.66 0-3 1.34-3 3 0 .35.07.69.18 1H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-5-2c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zM9 4c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm11 15H4v-2h16v2zm0-5H4V8h5.08L7 10.83 8.62 12 11 8.76l1-1.36 1 1.36L15.38 12 17 10.83 14.92 8H20v6z',
+    alert: 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z',
+    check: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
+    clock: 'M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z',
+    users: 'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z',
+    store: 'M20 4H4v2h16V4zm1 10v-2l-1-5H4l-1 5v2h1v6h10v-6h4v6h2v-6h1zm-9 4H6v-4h6v4z',
+    shield: 'M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z',
+    bell: 'M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5S10.5 3.17 10.5 4v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z',
+    list: 'M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z',
+    bug: 'M20 8h-2.81c-.45-.78-1.07-1.45-1.82-1.96L17 4.41 15.59 3l-2.17 2.17a6.002 6.002 0 0 0-2.83 0L8.41 3 7 4.41l1.62 1.63C7.88 6.55 7.26 7.22 6.81 8H4v2h2.09c-.05.33-.09.66-.09 1v1H4v2h2v1c0 .34.04.67.09 1H4v2h2.81c1.04 1.79 2.97 3 5.19 3s4.15-1.21 5.19-3H20v-2h-2.09c.05-.33.09-.66.09-1v-1h2v-2h-2v-1c0-.34-.04-.67-.09-1H20V8zm-6 8h-4v-2h4v2zm0-4h-4v-2h4v2z',
+  };
+  const d = paths[name] || paths.gift;
+  return el('span', {
+    class: 'icon',
+    style: 'width:' + size + 'px;height:' + size + 'px',
+    'aria-hidden': 'true',
+  }, el('svg', { viewBox: '0 0 24 24', width: size, height: size, fill: 'currentColor' }, el('path', { d })));
 }
 
 function field(labelText, input) {
@@ -110,14 +179,14 @@ function renderNav(activeName) {
   const showRetailer = user.role === 'admin' || user.role === 'business_owner';
   const links = store.token
     ? [
-        ['registries', 'Registries'],
-        ['notifications', 'Notifications'],
-        ...(showRetailer ? [['retailer', 'Retailer']] : []),
-        ...(user.role === 'admin' ? [['admin', 'Admin']] : []),
+        ['registries', 'Registries', 'gift'],
+        ['notifications', 'Notifications', 'bell'],
+        ...(showRetailer ? [['retailer', 'Retailer', 'store']] : []),
+        ...(user.role === 'admin' ? [['admin', 'Admin', 'shield']] : []),
       ]
-    : [['login', 'Sign in'], ['signup', 'Create account']];
-  document.getElementById('nav').replaceChildren(...links.map(([name, text]) => {
-    const a = el('a', { href: '#/' + name, text });
+    : [['login', 'Sign in', 'users'], ['signup', 'Create account', 'users']];
+  document.getElementById('nav').replaceChildren(...links.map(([name, text, ic]) => {
+    const a = el('a', { href: '#/' + name }, el('span', { class: 'navicon' }, icon(ic, 15)), text);
     if (name === activeName) a.classList.add('active');
     return a;
   }));
@@ -146,6 +215,71 @@ function notFoundView() {
   return el('div', { class: 'card' }, el('h1', null, 'Not found'), el('p', null, 'Unknown screen.'));
 }
 
+const firebaseCtl = {
+  config: null,
+  async read() {
+    if (!this.config) {
+      try {
+        const res = await fetch('/api/auth/firebase-config');
+        this.config = await res.json();
+      } catch { this.config = { enabled: false }; }
+    }
+    return this.config;
+  },
+  async load() {
+    if (!window.firebase) {
+      await Promise.all(['vendor/firebase-app-compat.js', 'vendor/firebase-auth-compat.js'].map((src) =>
+        new Promise((ok, bad) => {
+          const s = document.createElement('script');
+          s.src = '/' + src;
+          s.onload = ok;
+          s.onerror = () => bad(new Error('Failed to load /' + src));
+          document.head.append(s);
+        })));
+    }
+    if (!this.config) this.config = await this.read();
+    if (!firebaseCtl.app) firebaseCtl.app = firebase.initializeApp(this.config);
+  },
+};
+
+async function signInWithGoogle() {
+  await firebaseCtl.load();
+  const provider = new firebase.auth.GoogleAuthProvider();
+  const result = await firebase.auth().signInWithPopup(provider);
+  const idToken = await result.user.getIdToken();
+  const data = await api.post('/auth/firebase', { id_token: idToken });
+  setSession(data.user, data.token, true);
+  location.hash = data.user.role === 'admin' ? '#/admin' : '#/registries';
+}
+
+function reportClientError(err, extra) {
+  try {
+    const message = err && (err.message || String(err)) || 'unknown client error';
+    const payload = {
+      message: String(message).slice(0, 1000),
+      stack: err && err.stack ? String(err.stack).slice(0, 4000) : undefined,
+      page: location.pathname + location.hash,
+      extra,
+    };
+    const body = JSON.stringify(payload);
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon('/api/client-errors', new Blob([body], { type: 'application/json' }));
+    } else {
+      fetch('/api/client-errors', { method: 'POST', headers: { 'content-type': 'application/json' }, body, keepalive: true }).catch(() => {});
+    }
+  } catch { /* reporting must never break the page */ }
+}
+
+function loadingView(label = 'Loading…') {
+  return el('div', { class: 'loadbox' }, el('span', { class: 'spinner', 'aria-hidden': 'true' }), el('span', { class: 'muted' }, label));
+}
+
+const authFormFields = (form) => {
+  form.append(el('label', null,
+    el('input', { type: 'checkbox', name: 'remember', style: 'width:auto' }),
+    el('span', null, 'Keep me signed in (private session otherwise)')));
+};
+
 function authView(isSignup) {
   const err = banner();
   const form = el('form', { class: 'stack' });
@@ -157,6 +291,7 @@ function authView(isSignup) {
     form.append(field('Email or phone', textInput('email', 'text', { autocomplete: 'username' })));
   }
   form.append(field('Password', textInput('password', 'password', { minlength: isSignup ? 8 : 1 })));
+  authFormFields(form);
   if (isSignup) {
     const role = el('select', { name: 'role' },
       el('option', { value: 'customer' }, 'Customer'),
@@ -186,7 +321,7 @@ function authView(isSignup) {
           password: form.elements.password.value,
         });
       }
-      setSession(data.user, data.token);
+      setSession(data.user, data.token, form.elements.remember.checked);
       if (isSignup && data.stubs && data.stubs.verification) {
         const token = data.stubs.verification.replace(/^GET \/api\/auth\/verify\//, '').replace(/\s*\(.*/, '');
         renderNav('');
@@ -203,23 +338,45 @@ function authView(isSignup) {
       err.err(e.status === 401 ? 'Sign in failed — check your details and password.' : e.message);
     }
   });
-  return el('div', { class: 'card' },
+  const card = el('div', { class: 'card' },
     el('h1', null, isSignup ? 'Create your Tuyamika account' : 'Welcome back'),
     err, form,
     el('p', { class: 'muted' },
       isSignup ? 'Already registered? ' : 'New to Tuyamika? ',
       el('a', { href: isSignup ? '#/login' : '#/signup' }, isSignup ? 'Sign in' : 'Create account')));
+  firebaseCtl.read().then((cfg) => {
+    if (!cfg.enabled) return;
+    const fbErr = banner();
+    const fbBtn = el('button', { type: 'button', class: 'firebase' }, 'Continue with Google');
+    fbBtn.addEventListener('click', async () => {
+      fbErr.hidden = true;
+      fbBtn.disabled = true;
+      fbBtn.textContent = 'Opening Google…';
+      try { await signInWithGoogle(); } catch (e) {
+        fbErr.err((e && e.message) ? e.message : 'Google sign in failed');
+      } finally {
+        fbBtn.disabled = false;
+        fbBtn.textContent = 'Continue with Google';
+      }
+    });
+    card.append(el('p', { class: 'muted' }, 'Firebase sign in is available.'), fbBtn, fbErr);
+  });
+  return card;
 }
 
 const registriesView = () => {
   const wrap = el('div');
   const err = banner();
   const list = el('div', { class: 'grid' });
-  wrap.append(el('h1', null, 'My registries'), err, list);
-  wrap.append(el('h2', null, 'New registry'), createRegistryForm(err, () => render()));
+  const loading = loadingView();
+  wrap.append(el('h1', { class: 'pagehead' }, icon('gift', 20), ' My registries'), err, loading, list);
+  const form = el('div', { hidden: true }, el('h2', null, 'New registry'), createRegistryForm(err, () => render()));
+  wrap.append(form);
 
   api.get('/registries')
     .then(({ registries }) => {
+      loading.remove();
+      form.hidden = false;
       if (!registries.length) list.append(el('p', { class: 'muted' }, 'No registries yet — create one below.'));
       for (const r of registries) {
         const shareUrl = location.origin + '/r/' + r.share_token;
@@ -294,15 +451,18 @@ function registryDetailView(params) {
   const err = banner();
   const head = el('div');
   const itemsBox = el('div');
+  const regLoading = loadingView('Loading registry…');
   wrap.append(
     el('p', null, el('a', { href: '#/registries', class: 'muted' }, '← All registries')),
     err, head,
+    regLoading,
     el('h2', null, 'Gifts'), itemsBox,
     el('h2', null, 'Add gifts'), addItemForm(id, err, () => load())
   );
   wrap.append(el('p', { class: 'muted' }, 'Free tier: up to 3 registries, 12 gifts per registry.'));
 
   const load = async () => {
+    regLoading.remove();
     const data = await api.get('/registries/' + id);
     const reg = data.registry;
     head._reg = reg;
@@ -407,6 +567,7 @@ function registryDetailView(params) {
     .then((data) => { head._reg = data.registry; })
     .catch((e) => err.err('Could not load registry: ' + e.message));
   load().catch((e) => {
+    regLoading.remove();
     if (e.status === 401) { setSession(null, null); location.hash = '#/login'; }
     else err.err('Load failed: ' + e.message);
   });
@@ -481,7 +642,8 @@ function retailerView() {
   const wrap = el('div');
   const err = banner();
   const body = el('div');
-  wrap.append(el('h1', null, 'Retailer dashboard'), err, body);
+  wrap.append(el('h1', { class: 'pagehead' }, icon('store', 20), ' Retailer dashboard'), err, body);
+  body.replaceChildren(loadingView('Loading businesses…'));
 
   const openBusiness = async (biz) => {
     err.hidden = true;
@@ -592,28 +754,36 @@ const createBusinessForm = (err) => {
   return form;
 };
 
+const FF_FORWARD = {
+  paid: ['processing'],
+  processing: ['dispatched'],
+  dispatched: ['delivered', 'collected'],
+  delivered: [],
+  collected: [],
+};
+
 function adminView() {
   const wrap = el('div');
   const err = banner();
-  const tabs = ['users', 'businesses', 'orders', 'logs'];
+  const tabs = [['users', 'Users', 'users'], ['businesses', 'Businesses', 'store'], ['orders', 'Orders', 'gift'], ['logs', 'Audit log', 'list'], ['errors', 'Error reports', 'bug']];
   let active = 'users';
   const bar = el('div', { class: 'tabs' });
   const body = el('div');
   wrap.append(el('h1', null, 'Admin console'), err, bar, body);
 
   const draw = async () => {
-    bar.replaceChildren(...tabs.map((t) => el('button', {
+    bar.replaceChildren(...tabs.map(([t, label, ic]) => el('button', {
       type: 'button',
-      class: active === t ? 'active' : '',
+      class: `${active === t ? 'active' : ''} iconnable`,
       onclick: () => { active = t; draw(); },
-    }, t)));
-    body.replaceChildren(el('p', { class: 'muted' }, 'Loading…'));
+    }, icon(ic, 13), ' ', label)));
+    body.replaceChildren(loadingView());
     try {
       if (active === 'users') {
         const { users } = await api.get('/admin/users');
         body.replaceChildren(el('table', null,
           el('thead', null, el('tr', null,
-            el('th', null, 'Name'), el('th', null, 'Email'), el('th', null, 'Role'), el('th', null, 'Verified'), el('th', null, 'Joined'))),
+            el('th', null, icon('users', 13), ' Name'), el('th', null, 'Email'), el('th', null, 'Role'), el('th', null, 'Verified'), el('th', null, 'Joined'))),
           el('tbody', null, users.map((u) => el('tr', null,
             el('td', null, u.full_name),
             el('td', null, u.email),
@@ -624,7 +794,7 @@ function adminView() {
         const { businesses } = await api.get('/admin/businesses');
         body.replaceChildren(el('table', null,
           el('thead', null, el('tr', null,
-            el('th', null, 'Name'), el('th', null, 'Type'), el('th', null, 'Status'), el('th', null, 'Set status'))),
+            el('th', null, icon('store', 13), ' Name'), el('th', null, 'Type'), el('th', null, 'Status'), el('th', null, 'Set status'))),
           el('tbody', null, businesses.map((biz) => el('tr', null,
             el('td', null, biz.name),
             el('td', null, biz.type),
@@ -638,29 +808,61 @@ function adminView() {
                   onclick: () => api.post(`/admin/businesses/${biz.id}/status`, { status: s }).then(draw).catch((e) => err.err(e.message)),
                 }, s))))))));
       } else if (active === 'orders') {
-        const { orders } = await api.get('/admin/orders');
+        const [{ orders }, { orders: ffRows }] = await Promise.all([api.get('/admin/orders'), api.get('/fulfilment')]);
+        const ffByOrder = Object.fromEntries(ffRows.map((r) => [r.id, r.fulfilment]));
         body.replaceChildren(el('table', null,
           el('thead', null, el('tr', null,
-            el('th', null, 'Order'), el('th', null, 'Status'), el('th', null, 'Total'), el('th', null, 'Placed'))),
-          el('tbody', null, orders.map((o) => el('tr', null,
-            el('td', null, o.id),
-            el('td', null, statusBadge(o.status)),
-            el('td', { class: 'money' }, store.money(o.total_cents) + ' ' + o.currency),
-            el('td', null, fmtDate(o.created_at)))))));
-      } else {
+            el('th', null, icon('gift', 13), ' Order'), el('th', null, 'Status'), el('th', null, 'Total'), el('th', null, 'Placed'), el('th', null, 'Fulfilment'))),
+          el('tbody', null, orders.map((o) => {
+            const ff = ffByOrder[o.id];
+            const next = FF_FORWARD[o.status] || [];
+            return el('tr', null,
+              el('td', { class: 'mono' }, o.id.slice(0, 8) + '…'),
+              el('td', null, statusBadge(o.status)),
+              el('td', { class: 'money' }, store.money(o.total_cents) + ' ' + o.currency),
+              el('td', null, fmtDate(o.created_at)),
+              el('td', null, !next.length
+                ? el('span', { class: 'muted' }, ff ? 'done' : '—')
+                : next.map((s) => el('button', {
+                    class: 'ghost small', type: 'button',
+                    onclick: () => api.patch(`/fulfilment/${ff.id}`, { order_status: s }).then(draw).catch((e) => err.err(describeError(e))),
+                  }, s))));
+          }))));
+      } else if (active === 'logs') {
         const { logs } = await api.get('/admin/logs');
         body.replaceChildren(el('table', null,
           el('thead', null, el('tr', null,
-            el('th', null, 'Action'), el('th', null, 'Entity'), el('th', null, 'Details'), el('th', null, 'Time'))),
+            el('th', null, icon('list', 13), ' Action'), el('th', null, 'Entity'), el('th', null, 'Details'), el('th', null, 'Time'))),
           el('tbody', null, logs.map((l) => el('tr', null,
             el('td', null, l.action),
-            el('td', null, l.entity + ' ' + l.entity_id),
-            el('td', null, l.details),
+            el('td', null, l.entity + ' ' + (l.entity_id || '').slice(0, 8) + '…'),
+            el('td', { class: 'mono wrap' }, l.details),
             el('td', null, fmtDate(l.created_at)))))));
+      } else {
+        const { errors, counts } = await api.get('/admin/errors');
+        const clear = el('button', { class: 'danger small', type: 'button', onclick: () => api.del('/admin/errors').then(draw).catch((e) => err.err(e.message)) }, 'Clear all');
+        body.replaceChildren(el('div', { class: 'flexrow' },
+          el('span', { class: 'badge ok' }, `server ${counts.server || 0}`),
+          el('span', { class: 'badge' }, `client ${counts.client || 0}`), clear),
+        errors.length
+          ? el('table', null,
+              el('thead', null, el('tr', null,
+                el('th', null, icon('bug', 13), ' Time'), el('th', null, 'Source'), el('th', null, 'Message'), el('th', null, 'Where'), el('th', null, ''))),
+              el('tbody', null, errors.map((e) => el('tr', null,
+                el('td', { class: 'nowrap muted' }, fmtDate(e.created_at)),
+                el('td', null, statusBadge(e.source === 'server' ? 'pending' : 'published'), ' ', el('span', { class: 'muted' }, e.level)),
+                el('td', { class: 'wrap' }, e.message),
+                el('td', { class: 'mono wrap' }, e.page || (e.context && e.context.path) || '—'),
+                el('td', null, el('button', {
+                  class: 'ghost small', type: 'button', 'aria-label': 'dismiss',
+                  onclick: () => api.del(`/admin/errors/${e.id}`).then(draw).catch((x) => err.err(x.message)),
+                }, '×'))))))
+          : el('p', { class: 'muted' }, 'No errors logged — clean run.'));
       }
     } catch (e) {
       err.err('Could not load ' + active + ': ' + e.message);
       body.replaceChildren();
+      reportClientError(e, { scope: 'admin.' + active });
     }
   };
   draw();
@@ -671,7 +873,8 @@ function notificationsView() {
   const wrap = el('div');
   const err = banner();
   const body = el('div');
-  wrap.append(el('h1', null, 'Notifications'), err, body);
+  wrap.append(el('h1', { class: 'pagehead' }, icon('bell', 20), ' Notifications'), err, body);
+  body.replaceChildren(loadingView());
 
   const load = () => api.get('/notifications').then(({ notifications, unread }) => {
     if (!notifications.length) {
@@ -699,16 +902,31 @@ function notificationsView() {
 }
 
 function boot() {
+  const toasts = el('div', { id: 'toasts', 'aria-live': 'polite' });
+  document.body.append(toasts);
+
+  window.addEventListener('error', (e) => reportClientError(e.error || new Error(String(e.message))));
+  window.addEventListener('unhandledrejection', (e) => reportClientError(e.reason || new Error('unhandled promise rejection')));
+
   const session = document.createElement('div');
   session.id = 'session';
   document.getElementById('topbar').append(session);
   const redrawSession = () => {
+    const left = sessionRemaining();
+    const expiryTitle = left == null
+      ? null
+      : left <= 0
+        ? 'Session expired — sign in again'
+        : `Session valid for ${Math.round(left / 60)} more minutes`;
     session.replaceChildren(...(store.token && store.user
-      ? [el('span', null, store.user.full_name),
-         el('button', {
-           class: 'ghost small', type: 'button',
-           onclick: () => { setSession(null, null); location.hash = '#/login'; render(); },
-         }, 'Sign out')]
+      ? [
+          ...(expiryTitle ? [el('span', { class: 'session-expiry', title: expiryTitle }, icon(left <= 0 ? 'alert' : 'clock', 13))] : []),
+          el('span', { class: 'nowrap' }, store.user.full_name),
+          el('button', {
+            class: 'ghost small', type: 'button',
+            onclick: () => { setSession(null, null); location.hash = '#/login'; render(); toast('Signed out — session cleared.', 'info'); },
+          }, 'Sign out'),
+        ]
       : []));
   };
   window.addEventListener('hashchange', () => { redrawSession(); render(); });

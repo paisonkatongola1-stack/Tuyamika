@@ -5,11 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { C, F, S, shadow } from '../theme';
 import { TopHeader } from '../components/Headers';
 import { ProductImage, Price, Stars, PrimaryButton } from '../components/UI';
-import { SPECIALS, PROVIDERS } from '../data';
+import { useStore } from '../store';
 
 const TABS = ['Gift Boxes', 'Hampers', 'Seasonal'];
 
 export default function Specials({ navigation }) {
+  const SPECIALS = useStore().specials;
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }} edges={['top']}>
       <View style={{ flex: 1, backgroundColor: C.ivory }}>

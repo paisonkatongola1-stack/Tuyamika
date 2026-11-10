@@ -2,6 +2,8 @@ import * as Crypto from 'expo-crypto';
 import { sha256Hex } from './sha256.js';
 import { storage, KEYS } from './storage.js';
 import { validateEmail, validatePassword } from './validate.js';
+import { ApiAuthProvider } from './apiProvider.js';
+import { isApiConfigured } from '../api/client.js';
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -68,15 +70,17 @@ async function createSession(userId) {
   };
 }
 
-export function createAuthClient(provider = getDefaultAuthProvider()) {
-  return provider;
+export function createAuthClient() {
+  return getDefaultAuthProvider();
 }
 
 export function getDefaultAuthProvider() {
-  return typeof __DEV__ !== 'undefined' && __DEV__
-    ? LocalAuthProvider
-    : UnconfiguredAuthProvider;
+  if (isApiConfigured()) return ApiAuthProvider;
+  if (typeof __DEV__ !== 'undefined' && __DEV__) return LocalAuthProvider;
+  return UnconfiguredAuthProvider;
 }
+
+export { googleSignInSupported, isFirebaseAppConfigured } from './firebaseClient.js';
 
 export const UnconfiguredAuthProvider = {
   name: 'unconfigured',

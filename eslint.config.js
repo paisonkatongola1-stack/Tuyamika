@@ -13,6 +13,8 @@ export default [
         console: 'readonly',
         process: 'readonly',
         fetch: 'readonly',
+        AbortController: 'readonly',
+        Buffer: 'readonly',
         setInterval: 'readonly',
         clearInterval: 'readonly',
         setTimeout: 'readonly',

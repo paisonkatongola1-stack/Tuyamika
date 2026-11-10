@@ -15,7 +15,7 @@ if (flagged && !force) {
 }
 
 const clear = db.transaction(() => {
-  for (const table of ['reservations', 'registry_items', 'registries', 'orders', 'order_items', 'webhook_events', 'products', 'businesses', 'contribution_goals', 'contribution_campaigns', 'notifications', 'subscriptions', 'admin_logs', 'users']) {
+  for (const table of ['notify_outbox', 'product_reviews', 'specials', 'reservations', 'registry_items', 'registries', 'orders', 'order_items', 'webhook_events', 'products', 'businesses', 'contribution_goals', 'contribution_campaigns', 'notifications', 'subscriptions', 'admin_logs', 'error_logs', 'users']) {
     db.prepare(`DELETE FROM ${table}`).run();
   }
 });
@@ -74,6 +74,42 @@ for (const [pid, qty] of demoItems) {
     `INSERT INTO registry_items (id, registry_id, product_id, quantity, unit_price, status) VALUES (?, ?, ?, ?, ?, 'available')`
   ).run(uid(), registryId, pid, qty, price);
 }
+
+// demo vendor promo (Specials) + a seeded review
+db.prepare(
+  `INSERT INTO specials (id, product_id, business_id, title, tag, discount_pct, starts_at, ends_at, status, created_at)
+   VALUES (?, ?, ?, ?, 'Bestseller', 15, ?, NULL, 'active', ?)`
+).run(uid(), productIds[2], bizId, 'Zamani beaded necklace', t, t);
+db.prepare(
+  `INSERT INTO specials (id, product_id, business_id, title, tag, discount_pct, starts_at, ends_at, status, created_at)
+   VALUES (?, ?, ?, ?, 'New', 0, ?, NULL, 'active', ?)`
+).run(uid(), productIds[5], bizId, 'Kente baby gift set', t, t);
+
+// paid order for tino so the review flow + tracking/fulfilment pipeline have demo data
+const price4 = db.prepare('SELECT price_cents FROM products WHERE id = ?').get(productIds[4]).price_cents;
+const privReg = uid();
+db.prepare(
+  `INSERT INTO registries (id, owner_id, name, occasion, event_date, message, visibility, surprise, share_token, status, created_at, updated_at)
+   VALUES (?, ?, 'Tino personal list', 'birthday', '2027-06-01', NULL, 'private', 0, 'demo-priv-reg-2026', 'draft', ?, ?)`
+).run(privReg, owner, t, t);
+const privItem = uid();
+db.prepare(
+  `INSERT INTO registry_items (id, registry_id, product_id, quantity, unit_price, status, purchased_by, purchased_at)
+   VALUES (?, ?, ?, 1, ?, 'purchased', ?, ?)`
+).run(privItem, privReg, productIds[4], price4, owner, t);
+const paidOrder = uid();
+db.prepare(
+  `INSERT INTO orders (id, purchaser_id, recipient_name, recipient_contact, destination, session_token, total_cents, currency, payment_ref, status, idempotency_key, created_at, updated_at)
+   VALUES (?, ?, 'Tino Owner Demo', '260970000111', 'self', NULL, ?, 'USD', 'demo-paid-ref-2026', 'paid', 'demo-paid-idem-2026', ?, ?)`
+).run(paidOrder, owner, price4, t, t);
+db.prepare(
+  `INSERT INTO order_items (order_id, registry_item_id, quantity, unit_price, retailer_group_id, delivery, special_instructions)
+   VALUES (?, ?, 1, ?, NULL, 'self', NULL)`
+).run(paidOrder, privItem, price4);
+db.prepare(
+  `INSERT INTO fulfilment_records (id, order_id, hub_receipt, wrapping, decoration, proof_of_delivery, status, created_at, updated_at)
+   VALUES (?, ?, 0, 0, 0, NULL, 'pending', ?, ?)`
+).run(uid(), paidOrder, t, t);
 
 const campaignId = uid();
 db.prepare(

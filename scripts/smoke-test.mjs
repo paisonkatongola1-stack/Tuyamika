@@ -34,6 +34,9 @@ async function startScratchServer() {
       RL_AUTH_MAX: '100000',
       RL_GUEST_MAX: '100000',
       RL_PAY_MAX: '100000',
+      FIREBASE_PROJECT_ID: '',
+      FIREBASE_CLIENT_EMAIL: '',
+      FIREBASE_PRIVATE_KEY: '',
     },
   });
   for (let i = 0; i < 60; i++) {
@@ -103,6 +106,10 @@ log('guest sees seeded share page', shareReg.status, shareReg.status === 200 && 
 const item = seedItems[0];
 
 // 4 reserve
+const fbCfg = await api('GET', '/api/auth/firebase-config');
+log('firebase config disabled by default', fbCfg.status, fbCfg.status === 200 && fbCfg.json.enabled === false);
+const fb = await api('POST', '/api/auth/firebase', { body: { id_token: 'smoke-fake-id-token' } });
+log('firebase exchange unconfigured -> 503', fb.status, fb.status === 503);
 const sess = 'sess-guest-demo-0001';
 const t = Date.now();
 const idemReserve = `idem-reserve-${t}`;
@@ -171,10 +178,102 @@ const mine = await api('GET', `/api/registries/${reg2id}`, { token: login.json.t
 const mineItem = mine.json.items[0];
 log('owner view hides giver on surprise', mineItem, mineItem.purchased_by === null && mineItem.purchased_at === null && mineItem.status === 'purchased');
 
-// 11 free tier still enforced (tino at 2 of 3)
-const c = await api('POST', '/api/registries', { token: login.json.token, body: { name: 'Third registry', occasion: 'birthday', surprise: false } });
-const c2 = await api('POST', '/api/registries', { token: login.json.token, body: { name: 'Fourth blocked', occasion: 'birthday', surprise: false } });
-log('tino 3rd ok 4th blocked', `${c.status}/${c2.status}`, c.status === 201 && c2.status === 403);
+// 11 free tier still enforced (fresh user so the limit count is deterministic)
+const limUser = await api('POST', '/api/auth/signup', { body: { email: `limit-${t}@t.test`, password: 'password123', full_name: 'Limit Demo' } });
+const limTok = limUser.json?.token;
+log('limit user signup', limUser.status, !!limTok);
+const c1 = await api('POST', '/api/registries', { token: limTok, body: { name: 'Limit one', occasion: 'birthday' } });
+const c2 = await api('POST', '/api/registries', { token: limTok, body: { name: 'Limit two', occasion: 'birthday' } });
+const c3 = await api('POST', '/api/registries', { token: limTok, body: { name: 'Limit three', occasion: 'birthday' } });
+const c4 = await api('POST', '/api/registries', { token: limTok, body: { name: 'Limit four', occasion: 'birthday' } });
+log('third registry ok, fourth blocked', `${c3.status}/${c4.status}`, c1.status === 201 && c2.status === 201 && c3.status === 201 && c4.status === 403);
+
+// 12 profile update via PATCH /api/auth/me
+const mePatch = await api('PATCH', '/api/auth/me', { token: login.json.token, body: { full_name: 'Tino Owner Demo', phone: '260970000111', country: 'ZM' } });
+log('PATCH /me updates profile', `${mePatch.status}`, mePatch.status === 200 && mePatch.json.user.full_name === 'Tino Owner Demo' && mePatch.json.user.phone === '260970000111');
+const meBad = await api('PATCH', '/api/auth/me', { token: login.json.token, body: { country: 'ZZ' } });
+log('PATCH /me rejects bad country', meBad.status, meBad.status === 400);
+const meAnon = await api('PATCH', '/api/auth/me', { body: { full_name: 'x' } });
+log('PATCH /me requires auth', meAnon.status, meAnon.status === 401);
+
+// 13 seeded logins for privileged checks
+const adminLogin = await api('POST', '/api/auth/login', { body: { email: 'admin@tuyamika.app', password: 'admin-demo-2026' } });
+const retailerLogin = await api('POST', '/api/auth/login', { body: { email: 'zulwazi@crafts.africa', password: 'retail-demo-2026' } });
+log('admin + retailer logins', `${adminLogin.status}/${retailerLogin.status}`, adminLogin.status === 200 && retailerLogin.status === 200);
+
+// 14 specials (vendor promos)
+const spec = await api('GET', '/api/specials');
+log('specials public list', spec.status, spec.status === 200 && spec.json.specials.length >= 2);
+
+const productsOut = await api('GET', '/api/products');
+log('public products list', productsOut.status, productsOut.status === 200 && productsOut.json.products.length >= 2);
+const plainProduct = productsOut.json.products.find((x) => x.title === 'Shweshwe print fabric bundle');
+const specCr = await api('POST', '/api/specials', { token: retailerLogin.json.token, body: { product_id: plainProduct?.id, discount_pct: 10, tag: 'Loved' } });
+log('retailer creates promo', specCr.status, specCr.status === 201);
+
+
+// 14 events + RSVP + tasks
+const ev = await api('POST', '/api/events', { token: login.json.token, body: { name: 'Bridal Shower', event_date: '2027-03-01', location: 'Lusaka', budget_cents: 8000 } });
+const evId = ev.json.event?.id;
+log('event created', ev.status, ev.status === 201 && !!evId);
+const rsvp = await api('POST', `/api/events/${evId}/rsvp`, { token: login.json.token, body: { status: 'going', guests: 2 } });
+log('rsvp recorded', rsvp.status, rsvp.status === 200 && rsvp.json.event.guest_count === 3);
+const task = await api('POST', `/api/events/${evId}/tasks`, { token: login.json.token, body: { title: 'Confirm catering', priority: 'high' } });
+const taskId = task.json.task?.id;
+log('event task created', task.status, task.status === 201 && !!taskId);
+const taskDone = await api('PATCH', `/api/events/${evId}/tasks/${taskId}`, { token: login.json.token, body: { status: 'done' } });
+log('task marked done', taskDone.status, taskDone.status === 200 && taskDone.json.task.status === 'done');
+
+// 15 product reviews (verified buyer only)
+const revDeny = await api('POST', `/api/products/${seedItems[0].product_id}/reviews`, { token: login.json.token, body: { rating: 5 } });
+log('review needs purchase', revDeny.status, revDeny.status === 403);
+
+const pillow = productsOut.json.products.find((x) => x.title === 'Ndebele pattern throw pillow');
+const revOk = await api('POST', `/api/products/${pillow?.id}/reviews`, { token: login.json.token, body: { rating: 5, title: 'Lovely', body: 'Arrived quickly.' } });
+log('review posted (verified buyer)', revOk.status, revOk.status === 201);
+const revDup = await api('POST', `/api/products/${pillow?.id}/reviews`, { token: login.json.token, body: { rating: 4 } });
+log('duplicate review blocked', revDup.status, revDup.status === 409);
+const revList = await api('GET', `/api/products/${pillow?.id}/reviews`);
+log('reviews public list', revList.status, revList.status === 200 && revList.json.reviews.length === 1);
+
+// 16 tracker + fulfilment pipeline (paid -> processing -> dispatched -> delivered)
+const track = await api('GET', '/api/orders/track/demo-paid-ref-2026');
+log('track seeded paid order', track.status, track.status === 200 && track.json.order?.status === 'paid' && !!track.json.fulfilment);
+
+const ffList = await api('GET', '/api/fulfilment', { token: adminLogin.json.token });
+const ffRec = ffList.json.orders.find((o) => o.id === track.json.order?.id)?.fulfilment;
+log('fulfilment record visible to admin', ffRec?.status, !!ffRec);
+
+const ffBad = await api('PATCH', `/api/fulfilment/${ffRec.id}`, { token: adminLogin.json.token, body: { order_status: 'delivered' } });
+log('skip transition rejected', ffBad.status, ffBad.status === 409);
+const ffProc = await api('PATCH', `/api/fulfilment/${ffRec.id}`, { token: adminLogin.json.token, body: { order_status: 'processing', wrapping: true } });
+log('processing transition ok', ffProc.status, ffProc.status === 200 && ffProc.json.status === 'processing' && ffProc.json.fulfilment.wrapping === true);
+const ffDisp = await api('PATCH', `/api/fulfilment/${ffRec.id}`, { token: adminLogin.json.token, body: { order_status: 'dispatched' } });
+log('dispatched ok', ffDisp.status, ffDisp.status === 200 && ffDisp.json.status === 'dispatched');
+const trackAfter = await api('GET', '/api/orders/track/demo-paid-ref-2026');
+log('track shows fulfilment status', trackAfter.status, trackAfter.status === 200 && trackAfter.json.order?.status === 'dispatched');
+
+const ffRetail = await api('GET', '/api/fulfilment', { token: retailerLogin.json.token });
+log('retailer sees own fulfilment rows', ffRetail.status, ffRetail.status === 200 && ffRetail.json.orders.length >= 2);
+
+// 17 payment provider surface (stub default)
+const provs = await api('GET', '/api/pay/providers');
+log('provider info stub default', provs.status, provs.status === 200 && provs.json.selected === 'stub');
+const payGate = await api('POST', '/api/pay/status/demo-paid-ref-2026');
+log('pay status gate 503 on stub', payGate.status, payGate.status === 503);
+
+// 18 error ledger (client reports + admin surface)
+const badReport = await api('POST', '/api/client-errors', { body: {} });
+log('client error report validation', badReport.status, badReport.status === 400);
+const rep1 = await api('POST', '/api/client-errors', { body: { message: 'Console smoke fault', page: '/#/orders' } });
+log('client error report accepted', rep1.status, rep1.status === 202);
+const errList = await api('GET', '/api/admin/errors', { token: adminLogin.json.token });
+log('admin sees error ledger', errList.status, errList.status === 200 && errList.json.errors.some((e) => e.source === 'client' && e.message === 'Console smoke fault'));
+const errNoAuth = await api('GET', '/api/admin/errors');
+log('error ledger admin only', errNoAuth.status, errNoAuth.status === 401);
+const clr1 = await api('DELETE', '/api/admin/errors', { token: adminLogin.json.token });
+const clr2 = await api('DELETE', '/api/admin/errors', { token: adminLogin.json.token });
+log('error ledger clear', `${clr1.status}/${clr2.status}`, clr1.status === 200 && clr2.status === 200);
 
 const failed = results.filter((x) => !x.ok);
 console.log('----');
