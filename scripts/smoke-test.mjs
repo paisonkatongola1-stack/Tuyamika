@@ -75,6 +75,7 @@ async function api(method, path, { token, headers = {}, body } = {}) {
 
 // 1 signup + verify stub
 let r = await api('POST', '/api/auth/signup', { body: { email: 'own@t.test', password: 'password123', full_name: 'Test Owner' } });
+if (r.status === 400) r = await api('POST', '/api/auth/signup', { body: { email: 'own@t.test', password: 'password123', full_name: 'Test Owner', consent: true } });
 if (r.status === 409) r = await api('POST', '/api/auth/login', { body: { email: 'own@t.test', password: 'password123' } });
 const ownerToken = r.json.token;
 log('signup ok', r.status, !!ownerToken && r.status === 201);
@@ -179,7 +180,7 @@ const mineItem = mine.json.items[0];
 log('owner view hides giver on surprise', mineItem, mineItem.purchased_by === null && mineItem.purchased_at === null && mineItem.status === 'purchased');
 
 // 11 free tier still enforced (fresh user so the limit count is deterministic)
-const limUser = await api('POST', '/api/auth/signup', { body: { email: `limit-${t}@t.test`, password: 'password123', full_name: 'Limit Demo' } });
+const limUser = await api('POST', '/api/auth/signup', { body: { email: `limit-${t}@t.test`, password: 'password123', full_name: 'Limit Demo', consent: true } });
 const limTok = limUser.json?.token;
 log('limit user signup', limUser.status, !!limTok);
 const c1 = await api('POST', '/api/registries', { token: limTok, body: { name: 'Limit one', occasion: 'birthday' } });
@@ -275,7 +276,59 @@ const clr1 = await api('DELETE', '/api/admin/errors', { token: adminLogin.json.t
 const clr2 = await api('DELETE', '/api/admin/errors', { token: adminLogin.json.token });
 log('error ledger clear', `${clr1.status}/${clr2.status}`, clr1.status === 200 && clr2.status === 200);
 
+// 19 privacy/legal/compliance surface
+const legalPage = await api('GET', '/legal/privacy');
+log('privacy policy page', legalPage.status, legalPage.status === 200 && /Privacy Policy/.test(legalPage.raw) && /data deletion/i.test(legalPage.raw));
+const legalTerms = await api('GET', '/legal/terms');
+log('terms of service page', legalTerms.status, legalTerms.status === 200 && /Terms of Service/.test(legalTerms.raw) && /no hidden charges/i.test(legalTerms.raw));
+const legalRefund = await api('GET', '/legal/refund');
+log('refund policy page', legalRefund.status, legalRefund.status === 200 && /Refund Policy/.test(legalRefund.raw));
+const legalCookies = await api('GET', '/legal/cookies');
+log('cookie policy page', legalCookies.status, legalCookies.status === 200 && /tuyamika.cookieconsent/.test(legalCookies.raw));
+const legal404 = await api('GET', '/legal/nope');
+log('legal 404 styled', legal404.status, legal404.status === 404);
+
+const csp = await fetch(`${B}/`).then((x) => x.headers);
+log('security headers on page', csp.get('content-security-policy') ? 'present' : 'missing', !!csp.get('content-security-policy'));
+const hsts = csp.get('strict-transport-security');
+log('hsts header', hsts || 'missing', !!hsts);
+
+const noConsent = await api('POST', '/api/auth/signup', { body: { email: `noconsent-${t}@t.test`, password: 'password123', full_name: 'No Consent', consent: false } });
+log('signup requires consent', noConsent.status, noConsent.status === 400);
+const honey = await api('POST', '/api/auth/signup', { body: { email: `bot-${t}@t.test`, password: 'password123', full_name: 'Bot', consent: true, hp: 'bot-filled-me' } });
+log('honeypot blocks bot signup', honey.status, honey.status === 400);
+
+// private event is invite-only now (RSVP IDOR regression test)
+const privEv = await api('POST', '/api/events', { token: ownerToken, body: { name: 'Private surprise dinner', visibility: 'private' } });
+const privId = privEv.json.event?.id;
+const outsider = await api('POST', '/api/auth/signup', { body: { email: `out-${t}@t.test`, password: 'password123', full_name: 'Outsider', consent: true } });
+const outsiderTok = outsider.json.token;
+const privRsvp = await api('POST', `/api/events/${privId}/rsvp`, { token: outsiderTok, body: { status: 'going' } });
+log('private event rsvp rejected (invite-only)', privRsvp.status, privRsvp.status === 403);
+const pubEv = await api('POST', '/api/events', { token: ownerToken, body: { name: 'Public fundraiser', visibility: 'unlisted' } });
+const pubId = pubEv.json.event?.id;
+const pubRsvp = await api('POST', `/api/events/${pubId}/rsvp`, { token: outsiderTok, body: { status: 'maybe', guests: 1 } });
+log('unlisted event rsvp open', pubRsvp.status, pubRsvp.status === 200);
+
+// unsubscribe route: garbage token rejected (valid-token path exercised by notifier end-to-end when SMTP configured)
+const unsubBad = await api('GET', '/api/auth/unsubscribe/garbage.token');
+log('unsubscribe rejects bad token', unsubBad.status, unsubBad.status === 400);
+
+// data deletion: create + own registry, then delete account
+const delUser = await api('POST', '/api/auth/signup', { body: { email: `del-${t}@t.test`, password: 'password123', full_name: 'Doomed Account', consent: true } });
+const delTok = delUser.json.token;
+await api('POST', '/api/registries', { token: delTok, body: { name: 'Doomed Registry', occasion: 'wedding' } });
+const del = await api('DELETE', '/api/auth/account', { token: delTok });
+log('account deletion accepted', del.status, del.status === 200 && /nonymized/.test(del.json.kept || ''));
+const delAfter = await api('GET', '/api/auth/me', { token: delTok });
+log('deleted account tombstoned (name/email gone)',
+  `${delAfter.status} ${delAfter.json.user?.email || ''}`,
+  delAfter.status === 200 && /deleted-.*@tombstone\.invalid/.test(delAfter.json.user?.email || '') && delAfter.json.user?.full_name === 'Deleted user');
+const delReg = await api('GET', '/api/registries', { token: delTok });
+log('owned registries erased at deletion', `${delReg.json.registries?.length}`, delReg.json.registries?.length === 0);
+
 const failed = results.filter((x) => !x.ok);
+
 console.log('----');
 console.log(`${results.length - failed.length}/${results.length} passed${failed.length ? `, failed: ${failed.map((f) => f.name).join(', ')}` : ''}`);
 if (server) server.kill('SIGTERM');

@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { db, uid, now } from './db.mjs';
+import { signOptoutToken } from '../middleware/auth.mjs';
 
 // Milestone 2: notifications hub channels.
 // inapp rows go to `notifications` (already existing callers); email/sms are
@@ -33,13 +34,24 @@ const smsEnabled = () => !!(process.env.SMS_GATEWAY_URL && process.env.SMS_SENDE
 
 // Queue an email/sms delivery attempt. recipient is an address/phone; caller
 // decides who gets which channel. Failures queue silently (worker retries).
-export function queueNotify({ recipient_id = null, channel, trigger, recipient, message }) {
+//
+// marketing: true marks bulk/promo sends; those are queued but silently
+// dropped at flush time when the user has opted out (users.email_optout, set
+// by the unsubscribe route). Transactional sends (orders, verification) always
+// go through.
+export function queueNotify({ recipient_id = null, channel, trigger, recipient, message, marketing = false }) {
   if (!recipient) return null;
+  let optedOut = false;
+  if (marketing && channel === 'email' && recipient_id) {
+    optedOut = !!db.prepare('SELECT email_optout FROM users WHERE id = ?').get(recipient_id)?.email_optout;
+  }
+  const sign = recipient_id && channel === 'email' ? signOptoutToken(recipient_id) : null;
+  const fullMessage = sign ? `${message}\n\nUnsubscribe from marketing emails: ${process.env.APP_PUBLIC_URL || 'https://tuyamika.co.zm'}/api/auth/unsubscribe/${sign}` : message;
   try {
     db.prepare(
       `INSERT INTO notify_outbox (id, recipient_id, channel, trigger, recipient, message, status, attempts, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?)`
-    ).run(uid(), recipient_id, channel, trigger, recipient, message, now());
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`
+    ).run(uid(), recipient_id, channel, trigger, recipient, fullMessage, optedOut ? 'opted_out' : 'pending', now());
   } catch (err) {
     console.log(`notifier_queue_error: ${err.message}`);
   }
@@ -47,7 +59,12 @@ export function queueNotify({ recipient_id = null, channel, trigger, recipient, 
 
 function wrapEmail(trigger, message) {
   const url = process.env.APP_PUBLIC_URL || 'https://tuyamika.co.zm';
-  return `<p>${message}</p><p style="color:#888;font-size:12px">Tuyamika — The Beauty of Giving, The Joy of Sharing.<br>${url}</p>`;
+  const lines = message.split('\n').filter(Boolean);
+  const unsubHtml = lines.length > 1
+    ? `<p style="font-size:12px"><a href="${lines[lines.length - 1].replace('Unsubscribe from marketing emails: ', '')}">Unsubscribe</a></p>`
+    : '';
+  const body = lines.length > 1 ? lines.slice(0, -1).join('</p><p>') : lines.join('</p><p>');
+  return `<p>${body}</p>${unsubHtml}<p style="color:#888;font-size:12px">Tuyamika — The Beauty of Giving, The Joy of Sharing.<br>${url}</p>`;
 }
 
 const senders = {
@@ -115,6 +132,7 @@ async function flushPending() {
     // email channel silently stays queued when SMTP is off but SMS is on
     if (row.channel === 'email' && !smtpEnabled()) continue;
     if (row.channel === 'sms' && !smsEnabled()) continue;
+    if (row.status === 'opted_out') continue;             // unsubscribe honored, retry window irrelevant
     if (await flushOne(row)) sent += 1;
   }
   return { checked: rows.length, sent };

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import z from 'zod';
 import { db, uid, now, q, fail } from '../lib/db.mjs';
-import { signSession, authRequired, JWT_SECRET } from '../middleware/auth.mjs';
+import { signSession, authRequired, JWT_SECRET, signOptoutToken } from '../middleware/auth.mjs';
 import { userView } from '../views/index.mjs';
 import { authLimiter } from '../middleware/ratelimit.mjs';
 import { firebaseConfigView, verifyFirebaseIdToken, firebaseAdminEmails } from '../lib/firebase.mjs';
@@ -17,6 +17,10 @@ export function signVerifyToken(userId) {
   return token;
 }
 
+// Unsubscribe links ride in every marketing-capable email footer. Tokens last
+// 90 days and only flip users.email_optout — never a session bearer.
+export { signOptoutToken };
+
 export const authRouter = Router();
 
 const Signup = z.object({
@@ -26,6 +30,8 @@ const Signup = z.object({
   phone: z.string().min(1).optional(),
   country: z.string().length(2).default('ZW'),
   role: z.enum(['customer', 'business_owner', 'service_provider']).default('customer'),
+  consent: z.literal(true, { invalid_type_error: 'privacy consent required to create an account' }),
+  hp: z.string().max(0).optional(), // honeypot: bots fill it, humans never see it
 });
 
 const Login = z.object({ email: z.string().optional(), phone: z.string().optional(), password: z.string().min(1) }).refine(
@@ -37,6 +43,7 @@ authRouter.post('/signup', authLimiter, (req, res) => {
   const parsed = Signup.safeParse(req.body);
   if (!parsed.success) throw fail(400, 'validation failed', { details: parsed.error.flatten() });
   const body = parsed.data;
+  if (body.hp) throw fail(400, 'validation failed'); // honeypot filled: treat as bot
 
   const clash = q.getUserByIdOrPhone().get(body.email ?? null, body.phone ?? null);
   if (clash) throw fail(409, 'email or phone already registered');
@@ -79,6 +86,68 @@ authRouter.post('/login', authLimiter, (req, res) => {
   const row = q.getUserByIdOrPhone().get(email ?? null, phone ?? null);
   if (!row || !bcrypt.compareSync(password, row.password_hash)) throw fail(401, 'invalid credentials');
   res.json({ user: userView(row), token: signSession(row) });
+});
+
+// Data deletion (privacy right). FK graph makes a hard DELETE unsafe
+// (orders/events/contributions carry money records that must persist), so the
+// account row is tombstoned: every personal field is overwritten, links are
+// dropped, and owned registries/events are removed. Financial rows remain
+// anonymized for accounting and fraud compliance — documented in the privacy
+// policy (/legal/privacy).
+const TOMB = {
+  emailPrefix: 'deleted-',
+  emailDomain: '@tombstone.invalid',
+};
+
+authRouter.delete('/account', authRequired, (req, res) => {
+  const user = q.getUser().get(req.user.id);
+  if (!user) throw fail(404, 'user not found');
+  if (user.role === 'admin' && db.prepare('SELECT COUNT(*) n FROM users WHERE role = ?').get('admin').n <= 1) {
+    throw fail(409, 'refusing to delete the only admin account');
+  }
+
+  const tx = db.transaction(() => {
+    const tombEmail = `${TOMB.emailPrefix}${user.id}${TOMB.emailDomain}`;
+    db.prepare(
+      `UPDATE users SET
+         email = ?, phone = NULL, password_hash = '!deleted', full_name = 'Deleted user',
+         country = 'ZZ', firebase_uid = NULL, email_optout = 1
+       WHERE id = ?`
+    ).run(tombEmail, user.id);
+
+    db.prepare(`DELETE FROM registries WHERE owner_id = ?`).run(user.id);         // cascades items
+    db.prepare(`DELETE FROM events WHERE owner_id = ?`).run(user.id);              // cascades memberships/tasks
+    db.prepare(
+      `UPDATE orders SET recipient_name = '(deleted)', recipient_contact = NULL
+       WHERE purchaser_id = ?`
+    ).run(user.id);
+    db.prepare(`UPDATE registry_items SET purchased_by = NULL, purchased_at = NULL WHERE purchased_by = ?`).run(user.id);
+    db.prepare(
+      `UPDATE notifications SET read = 1 WHERE recipient_id = ?`
+    ).run(user.id);
+  });
+  tx();
+
+  console.log(`account_deleted: ${user.id} (${user.role}) — personal data tombstoned, money records anonymized`);
+  res.json({
+    ok: true,
+    deleted_at: new Date().toISOString(),
+    kept: 'Anonymized order/payment records retained for accounting and fraud compliance.',
+  });
+});
+
+authRouter.get('/unsubscribe/:token', (req, res) => {
+  let payload;
+  try {
+    payload = jwt.verify(req.params.token, JWT_SECRET);
+  } catch {
+    throw fail(400, 'unsubscribe link expired — emails for marketing will not be sent again');
+  }
+  if (payload.kind !== 'optout') throw fail(400, 'wrong token kind');
+  const r = db.prepare('UPDATE users SET email_optout = 1 WHERE id = ?').run(payload.sub);
+  if (!r.changes) throw fail(404, 'user not found');
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tuyamika — Unsubscribed</title><link rel="stylesheet" href="/styles.css"></head><body><main class="card"><h1>Unsubscribed</h1><p>You will no longer receive marketing emails from Tuyamika. Atuyamika-required emails (order updates, account security) still arrive.</p><p class="muted">Changed your mind? Sign in to your account and clear the marketing preference, or contact support@tuyamika.</p><p><a href="/">Back to Tuyamika</a></p></main></body></html>`;
+  res.type('html').send(html);
 });
 
 authRouter.get('/me', authRequired, (req, res) => {

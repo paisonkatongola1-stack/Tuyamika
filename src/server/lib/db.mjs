@@ -77,6 +77,10 @@ export function runMigrations() {
     db.exec('ALTER TABLE users ADD COLUMN firebase_uid TEXT');
     console.log('db_migrate: users.firebase_uid added');
   }
+  if (!userCols.includes('email_optout')) {
+    db.exec('ALTER TABLE users ADD COLUMN email_optout INTEGER NOT NULL DEFAULT 0');
+    console.log('db_migrate: users.email_optout added');
+  }
   console.log('db_migrate: schema applied');
 }
 

@@ -18,6 +18,7 @@ import { fail } from './lib/db.mjs';
 import { sweepExpired } from './lib/reservation.mjs';
 import { logError } from './lib/errorlog.mjs';
 import { errorRouter } from './routes/errors.mjs';
+import { legalRouter } from './routes/legal.mjs';
 import { startNotifierWorker } from './lib/notifier.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -25,20 +26,31 @@ import path from 'node:path';
 const staticRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'public');
 
 const app = express();
+app.enable('trust proxy'); // rate-limit IPs and HTTPS redirect address proxies correctly
+app.use((req, res, next) => {
+  if (process.env.FORCE_HTTPS === '1' && req.protocol !== 'https' && req.method === 'GET') {
+    return res.redirect(301, `https://${req.get('host')}${req.originalUrl}`);
+  }
+  next();
+});
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"], // email-style helper pages inline a few colours
       scriptSrc: ["'self'"],
-      imgSrc: ["'self'"],
+      imgSrc: ["'self'", 'data:'],
       connectSrc: ["'self'"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
       frameSrc: ["'none'"],
+      frameAncestors: ["'self'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: [],
     }
-  }
+  },
+  hsts: { maxAge: 15552000 } // 180 days
 }));
 app.use(cors());
 app.use(express.json());
@@ -60,6 +72,7 @@ app.use('/api/retailer', retailerRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api', catalogRouter);
+app.use('/legal', legalRouter);
 
 app.use(express.static(staticRoot));
 

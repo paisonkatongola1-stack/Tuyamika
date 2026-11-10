@@ -1,9 +1,26 @@
 import jwt from 'jsonwebtoken';
 import { fail } from '../lib/db.mjs';
 
+// Fail fast in production: sessions signed with a predictable default secret
+// are forgeable. Local dev and smoke tests keep the fallback.
+const isPlainDev =
+  !process.env.NODE_ENV ||
+  ['development', 'dev', 'test'].includes(process.env.NODE_ENV || '');
+const secretFromEnv = !!process.env.JWT_SECRET;
+if (!secretFromEnv && !isPlainDev) {
+  console.error('jwt_config: refusing to start — set JWT_SECRET outside dev/test; the fallback secret is forgeable');
+  process.exit(1);
+}
 export const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const JWT_TTL = process.env.JWT_TTL || '7d';
 const SESSION_LOG_PREFIX = 'session_auth';
+
+// Unsubscribe tokens ride in marketing email footers. Verifying them only
+// flips users.email_optout (see routes/auth.mjs) — they are not session
+// bearers ("wrong token kind" guard in authRequired covers misuse).
+export function signOptoutToken(userId) {
+  return jwt.sign({ sub: userId, kind: 'optout' }, JWT_SECRET, { expiresIn: '90d' });
+}
 
 export function signSession(user) {
   const token = jwt.sign({ sub: user.id, role: user.role }, JWT_SECRET, { expiresIn: JWT_TTL });

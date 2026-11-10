@@ -147,8 +147,14 @@ export const money = (n) => 'K' + n.toLocaleString('en-ZM');
 
 export function ProductImage({ item, h = 110, radius = 14, iconSize = 34, style }) {
   return (
-    <LinearGradient colors={[item.a || C.champagne, item.b || C.blush]} start={{ x: 0.1, y: 0.1 }} end={{ x: 0.9, y: 1 }} style={[{ height: h, borderRadius: radius, alignItems: 'center', justifyContent: 'center' }, style]}>
-      <View style={{ width: Math.round(h * 0.52), height: Math.round(h * 0.52), borderRadius: Math.round(h * 0.26), backgroundColor: 'rgba(248,244,236,0.55)', alignItems: 'center', justifyContent: 'center' }}>
+    <LinearGradient
+      colors={[item.a || C.champagne, item.b || C.blush]}
+      start={{ x: 0.1, y: 0.1 }} end={{ x: 0.9, y: 1 }}
+      style={[{ height: h, borderRadius: radius, alignItems: 'center', justifyContent: 'center' }, style]}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <View pointerEvents="none" accessible={false} style={{ width: Math.round(h * 0.52), height: Math.round(h * 0.52), borderRadius: Math.round(h * 0.26), backgroundColor: 'rgba(248,244,236,0.55)', alignItems: 'center', justifyContent: 'center' }}>
         <Ionicons name={item.icon || 'gift-sharp'} size={iconSize} color={C.darkwood} />
       </View>
     </LinearGradient>

@@ -118,6 +118,13 @@ eventRouter.post('/:id/rsvp', (req, res) => {
   const e = db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id);
   if (!e) throw fail(404, 'event not found');
 
+  // Private events are invite-only: RSVP may create new guest memberships only
+  // when the event is public or unlisted, or the caller is already a member.
+  const alreadyMember = db
+    .prepare('SELECT 1 AS ok FROM event_memberships WHERE event_id = ? AND user_id = ?')
+    .get(e.id, req.user.id);
+  if (!alreadyMember && e.visibility === 'private') throw fail(403, 'this event is invite-only');
+
   db.prepare(
     `INSERT INTO event_memberships (event_id, user_id, role, permissions) VALUES (?, ?, 'guest', ?)
      ON CONFLICT (event_id, user_id) DO UPDATE SET permissions = excluded.permissions`

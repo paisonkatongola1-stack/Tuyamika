@@ -1,9 +1,11 @@
 const REMEMBER_KEY = 'tuyamika.remember';
+const CONSENT_KEY = 'tuyamika.cookieconsent';
 
 // Private session token: default placement is sessionStorage (cleared when the
-// tab closes). "Keep me signed in" flips to persistent localStorage.
+// tab closes). "Keep me signed in" flips to persistent localStorage — and only
+// applies when cookie/storage consent was granted.
 function tokenStore() {
-  if (localStorage.getItem(REMEMBER_KEY) === '1') return localStorage;
+  if (localStorage.getItem(CONSENT_KEY) === 'accepted' && localStorage.getItem(REMEMBER_KEY) === '1') return localStorage;
   return sessionStorage;
 }
 
@@ -172,6 +174,7 @@ const routes = {
   retailer: retailerView,
   admin: adminView,
   notifications: notificationsView,
+  account: accountView,
 };
 
 function renderNav(activeName) {
@@ -183,6 +186,7 @@ function renderNav(activeName) {
         ['notifications', 'Notifications', 'bell'],
         ...(showRetailer ? [['retailer', 'Retailer', 'store']] : []),
         ...(user.role === 'admin' ? [['admin', 'Admin', 'shield']] : []),
+        ['account', 'Account', 'users'],
       ]
     : [['login', 'Sign in', 'users'], ['signup', 'Create account', 'users']];
   document.getElementById('nav').replaceChildren(...links.map(([name, text, ic]) => {
@@ -195,7 +199,7 @@ function renderNav(activeName) {
 async function render() {
   const hash = location.hash.replace(/^#\/?/, '');
   const [name, ...rest] = hash.split('/');
-  const locked = ['registries', 'registry', 'retailer', 'admin', 'notifications'];
+  const locked = ['registries', 'registry', 'retailer', 'admin', 'notifications', 'account'];
   if (locked.includes(name) && !store.token) { location.hash = '#/login'; return; }
   if (!name) {
     location.hash = store.token
@@ -299,7 +303,19 @@ function authView(isSignup) {
       el('option', { value: 'service_provider' }, 'Service provider'));
     form.append(field('Account type', role));
     form.append(field('Country (ISO code)', textInput('country', 'text', { value: 'ZW', maxlength: 2, minlength: 2 })));
+    // honeypot: visually empty; bots auto-fill every field and get 400
+    form.append(el('input', { type: 'text', name: 'hp', autocomplete: 'off', tabindex: '-1', 'aria-hidden': 'true', style: 'position:absolute;left:-9999px;height:0;width:0;' }));
   }
+  const consentWrap = isSignup
+    ? el('label', { class: 'consentline' },
+        el('input', { type: 'checkbox', name: 'consent', required: true }),
+        el('span', null, 'I have read and agree to the ',
+          el('a', { href: '/legal/privacy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'),
+          ' and ',
+          el('a', { href: '/legal/terms', target: '_blank', rel: 'noopener' }, 'Terms of Service'),
+          '.'))
+    : null;
+  if (consentWrap) form.append(consentWrap);
   form.append(el('button', { type: 'submit' }, isSignup ? 'Create account' : 'Sign in'));
   formSubmit(form, async () => {
     err.hidden = true;
@@ -313,6 +329,7 @@ function authView(isSignup) {
           phone: fv(form, 'phone') || undefined,
           country: fv(form, 'country').toUpperCase() || 'ZW',
           role: form.elements.role.value,
+          consent: form.elements.consent.checked === true,
         });
       } else {
         const loginValue = fv(form, 'email');
@@ -901,12 +918,88 @@ function notificationsView() {
   return wrap;
 }
 
+// Account screen: transparency about stored data + self-service deletion
+// (privacy right documented in /legal/privacy).
+function accountView() {
+  const wrap = el('div');
+  const err = banner();
+  const u = store.user || {};
+  wrap.append(el('h1', { class: 'pagehead' }, icon('users', 20), ' Account'), err,
+    el('div', { class: 'card' },
+      el('dl', { class: 'kv' },
+        el('dt', null, 'Name'), el('dd', null, u.full_name || '—'),
+        el('dt', null, 'Email'), el('dd', null, u.email || '—'),
+        el('dt', null, 'Phone'), el('dd', null, u.phone || '—'),
+        el('dt', null, 'Country'), el('dd', null, u.country || '—'),
+        el('dt', null, 'Role'), el('dd', null, u.role || '—'),
+        el('dt', null, 'Verified'), el('dd', null, u.verified ? 'yes' : 'no'))),
+    el('div', { class: 'card' },
+      el('h2', null, 'Data & privacy'),
+      el('p', null, el('a', { href: '/legal/privacy', target: '_blank', rel: 'noopener' }, 'Privacy Policy'),
+        ' · ', el('a', { href: '/legal/cookies', target: '_blank', rel: 'noopener' }, 'Cookie Policy')),
+      el('details', null,
+        el('summary', { class: 'danger-summary' }, 'Delete my account and personal data'),
+        el('p', null, 'Deletes your name, phone, password hash and sign-in link; removes registries and events you own; leaves anonymized order records for accounting. This cannot be undone.'),
+        el('button', {
+          class: 'danger', type: 'button',
+          onclick: deleteAccountFlow,
+        }, 'Delete account permanently'))));
+  return wrap;
+}
+
+async function deleteAccountFlow() {
+  if (!confirm('Delete your account? This permanently erases your personal data and your registries/events.')) return;
+  if (!confirm('Second check: type nothing but choose OK to continue. This cannot be undone.')) return;
+  try {
+    const res = await api.del('/auth/account');
+    setSession(null, null);
+    location.hash = '#/login';
+    render();
+    toast('Account deleted. ' + (res.kept || ''), 'info', 7000);
+  } catch (e) {
+    toast('Deletion failed: ' + e.message, 'error');
+  }
+}
+
+function showCookieBanner() {
+  document.getElementById('cookiebanner')?.remove();
+  const bannerNode = el('div', { id: 'cookiebanner', role: 'region', 'aria-label': 'Cookie settings' },
+    icon('shield', 18),
+    el('p', null,
+      'This site stores only your sign-in token, your "Keep me signed in" choice (optional), and this banner answer. No trackers, no ad networks — details in the ',
+      el('a', { href: '/legal/cookies', target: '_blank', rel: 'noopener' }, 'Cookie Policy')),
+    el('div', { class: 'btnrow' },
+      el('button', {
+        type: 'button',
+        onclick: () => { localStorage.setItem(CONSENT_KEY, 'accepted'); bannerNode.remove(); toast('Cookies accepted — optional "Keep me signed in" is enabled.', 'info'); },
+      }, 'Accept'),
+      el('button', {
+        class: 'ghost', type: 'button',
+        onclick: () => { localStorage.setItem(CONSENT_KEY, 'declined'); localStorage.removeItem(REMEMBER_KEY); bannerNode.remove(); toast('Only strictly necessary sign-in storage will be used.', 'info'); },
+      }, 'Decline')));
+  document.body.append(bannerNode);
+  const first = bannerNode.querySelector('button');
+  first?.focus();
+}
+
 function boot() {
   const toasts = el('div', { id: 'toasts', 'aria-live': 'polite' });
   document.body.append(toasts);
 
   window.addEventListener('error', (e) => reportClientError(e.error || new Error(String(e.message))));
   window.addEventListener('unhandledrejection', (e) => reportClientError(e.reason || new Error('unhandled promise rejection')));
+
+  // Cookie- / storage-consent banner. Honors Do-Not-Track + Global Privacy
+  // Control as an automatic decline; never re-shows without clearing storage.
+  const consent = localStorage.getItem(CONSENT_KEY);
+  if (!consent && !navigator.doNotTrack && navigator.globalPrivacyControl !== true) showCookieBanner();
+  document.getElementById('cookieSettings')?.addEventListener('click', showCookieBanner);
+
+  // "Keep me signed in" is optional convenience storage — off until consent.
+  if (consent !== 'accepted') {
+    const rem = document.querySelector('input[name="remember"]');
+    if (rem) { rem.checked = false; rem.disabled = true; rem.closest('label')?.classList.add('consent-locked'); }
+  }
 
   const session = document.createElement('div');
   session.id = 'session';

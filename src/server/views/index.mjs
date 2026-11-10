@@ -71,7 +71,7 @@ export function guestRegistryPage(reg, items, opts = {}) {
     )
     .join('');
   const qr = opts.qr_svg
-    ? `<div class="share-qr">${opts.qr_svg}<small>Scan to open this registry</small></div>`
+    ? `<div class="share-qr"><span role="img" aria-label="QR code deeplinking to this registry page">${opts.qr_svg}</span><small>Scan to open this registry</small></div>`
     : '';
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Tuyamika — ${esc(reg.name)}</title><link rel="stylesheet" href="/styles.css"></head>
