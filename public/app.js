@@ -175,6 +175,7 @@ const routes = {
   admin: adminView,
   notifications: notificationsView,
   account: accountView,
+  quotes: quotesView,
 };
 
 function renderNav(activeName) {
@@ -183,6 +184,7 @@ function renderNav(activeName) {
   const links = store.token
     ? [
         ['registries', 'Registries', 'gift'],
+        ['quotes', 'Quotes', 'list'],
         ['notifications', 'Notifications', 'bell'],
         ...(showRetailer ? [['retailer', 'Retailer', 'store']] : []),
         ...(user.role === 'admin' ? [['admin', 'Admin', 'shield']] : []),
@@ -199,7 +201,7 @@ function renderNav(activeName) {
 async function render() {
   const hash = location.hash.replace(/^#\/?/, '');
   const [name, ...rest] = hash.split('/');
-  const locked = ['registries', 'registry', 'retailer', 'admin', 'notifications', 'account'];
+  const locked = ['registries', 'registry', 'retailer', 'admin', 'notifications', 'account', 'quotes'];
   if (locked.includes(name) && !store.token) { location.hash = '#/login'; return; }
   if (!name) {
     location.hash = store.token
@@ -725,6 +727,14 @@ function retailerView() {
             : el('p', { class: 'muted' }, (biz.status === 'approved' ? 'No products yet.' : 'Admin approval required before adding products.'))),
         ...(biz.status === 'approved' ? [card(el('h2', null, 'Add a product'), productForm)] : []),
         card(el('h2', null, 'Orders'), ordersTable));
+
+      if (biz.type === 'service_provider') {
+        try {
+          const { quotes } = await api.get('/quotes');
+          body.append(card(el('h2', null, 'Quote requests'), ...quotes.map((q) => quoteRow(q, true)),
+            quotes.length ? null : el('p', { class: 'muted' }, 'No quote requests yet.')));
+        } catch { /* quote listing optional */ }
+      }
     } catch (e) { err.err('Could not open business: ' + e.message); }
   };
 
@@ -920,6 +930,108 @@ function notificationsView() {
 
 // Account screen: transparency about stored data + self-service deletion
 // (privacy right documented in /legal/privacy).
+// Quotes: customer requests service quotes, provider responds, customer decides.
+function quoteRequestForm(err) {
+  const form = el('form', { class: 'stack' });
+  const provSel = el('select', { name: 'provider_id' });
+  form.append(
+    field('Service provider', provSel),
+    field('Event type (e.g. wedding catering)', textInput('event_type')),
+    field('Event date (optional)', textInput('event_date', 'text', { required: false })),
+    field('Location (optional)', textInput('location', 'text', { required: false })),
+    field('Requirements', el('textarea', { name: 'requirements', rows: 3 })),
+    el('button', { type: 'submit' }, 'Request quote'));
+  api.get('/quotes/providers')
+    .then(({ providers }) => {
+      provSel.replaceChildren(...providers.map((p) => el('option', { value: p.id }, p.name + (p.description ? ` — ${p.description}` : ''))));
+      if (!providers.length) provSel.replaceChildren(el('option', { value: '' }, 'No service providers approved yet'));
+    })
+    .catch(() => {});
+  formSubmit(form, async () => {
+    err.hidden = true;
+    try {
+      await api.post('/quotes', {
+        provider_id: provSel.value,
+        event_type: fv(form, 'event_type'),
+        event_date: fv(form, 'event_date') || undefined,
+        location: fv(form, 'location') || undefined,
+        requirements: fv(form, 'requirements'),
+      });
+      toast('Quote request sent to the provider.', 'info');
+      render();
+    } catch (e) { err.err(describeError(e)); }
+  });
+  return form;
+}
+
+function quoteResponseForm(q, err) {
+  const form = el('form', { class: 'stack' });
+  form.append(
+    field('Quoted price (cents)', textInput('price_cents', 'number', { min: 0, step: 1 })),
+    field('Message (optional)', el('textarea', { name: 'message', rows: 2 })),
+    el('button', { type: 'submit' }, 'Send quote'));
+  formSubmit(form, async () => {
+    err.hidden = true;
+    try {
+      await api.post(`/quotes/${q.id}/response`, { price_cents: +form.elements.price_cents.value, message: fv(form, 'message') || undefined });
+      toast('Quote sent to the customer.', 'info');
+      render();
+    } catch (e) { err.err(describeError(e)); }
+  });
+  return form;
+}
+
+function quoteRow(q, viewerIsProvider) {
+  const resp = q.response ? safeJson(q.response) : null;
+  const actions = [];
+  if (viewerIsProvider && ['pending', 'viewed'].includes(q.status)) actions.push(quoteResponseForm(q, banner()));
+  if (!viewerIsProvider && q.status === 'responded') {
+    actions.push(el('div', { class: 'btnrow' },
+      el('button', {
+        type: 'button',
+        onclick: () => api.post(`/quotes/${q.id}/accept`).then(render).catch((e) => toast(e.message, 'error')),
+      }, 'Accept'),
+      el('button', {
+        class: 'ghost', type: 'button',
+        onclick: () => api.post(`/quotes/${q.id}/accept?decision=declined`).then(render).catch((e) => toast(e.message, 'error')),
+      }, 'Decline')));
+  }
+  return card(
+    el('h2', null, q.event_type, ' ', statusBadge(q.status)),
+    el('p', { class: 'muted' }, 'Event: ', q.event_date || '—', ' · Location: ', q.location || '—'),
+    el('p', null, q.requirements),
+    resp
+      ? el('p', null, el('strong', null, 'Quote: '), store.money(resp.price_cents), resp.message ? ` — ${resp.message}` : '')
+      : null,
+    q.budget_cents ? el('p', { class: 'muted' }, 'Customer budget: ' + store.money(q.budget_cents)) : null,
+    ...actions);
+}
+
+function quotesView() {
+  const wrap = el('div');
+  const err = banner();
+  const body = el('div');
+  wrap.append(el('h1', { class: 'pagehead' }, icon('list', 20), ' Service quotes'), err, body);
+  const role = store.user?.role;
+  const viewerIsProvider = role === 'service_provider' || role === 'business_owner';
+  body.replaceChildren(loadingView());
+  Promise.all([api.get('/quotes'), viewerIsProvider ? Promise.resolve({ providers: [] }) : api.get('/quotes/providers')])
+    .then(([listRes, provRes]) => {
+      const quotes = listRes.json.quotes || [];
+      body.replaceChildren(
+        ...quotes.map((q) => quoteRow(q, viewerIsProvider)),
+        !viewerIsProvider
+          ? card(el('h2', null, 'Request a quote'), el('p', { class: 'muted' }, 'Ask an approved service provider (catering, decor, photography…) to quote your event.'), quoteRequestForm(err))
+          : quotes.length
+            ? el('p', { class: 'muted' }, 'Respond with a price; the customer accepts or declines.')
+            : el('p', { class: 'muted' }, 'No quote requests yet.'),
+      );
+      void provRes;
+    })
+    .catch((e) => { body.replaceChildren(el('div', { class: 'card' }, 'Load failed: ' + e.message)); });
+  return wrap;
+}
+
 function accountView() {
   const wrap = el('div');
   const err = banner();

@@ -34,11 +34,17 @@ clear();
 const admin = insertUser({ name: 'Mai Admin', email: 'admin@tuyamika.app', password: 'admin-demo-2026', role: 'admin' });
 const retailer = insertUser({ name: 'Zulwazi Crafts', email: 'zulwazi@crafts.africa', password: 'retail-demo-2026', role: 'business_owner' });
 const owner = insertUser({ name: 'Tino M', email: 'tino@example.com', password: 'owner-demo-2026', role: 'customer' });
+const caterer = insertUser({ name: 'Busi Events', email: 'busi@events.africa', password: 'events-demo-2026', role: 'service_provider' });
 
 const bizId = uid();
 db.prepare(
   `INSERT INTO businesses (id, user_id, type, name, description, status, created_at) VALUES (?, ?, 'retailer', 'Zulwazi Crafts', 'Hand-made heritage gifts', 'approved', ?)`
 ).run(bizId, retailer, t);
+
+const serviceId = uid();
+db.prepare(
+  `INSERT INTO businesses (id, user_id, type, name, description, status, created_at) VALUES (?, ?, 'service_provider', 'Busi Events', 'Event catering and decor', 'approved', ?)`
+).run(serviceId, caterer, t);
 
 const products = [
   ['Shweshwe print fabric bundle', 'Homeware', 4500],

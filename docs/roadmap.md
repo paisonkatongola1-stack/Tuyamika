@@ -22,9 +22,11 @@ Deferred phases live here, not in code (proposal §6). Order mirrors PRD §26 ex
 
 ## Milestone 4 — engagement
 
-- Specials (vendor promos). No schema yet.
-- Product reviews. No schema yet.
-- Quoted service booking (`quotes` schema exists, no routes).
+| Item | Status | Notes |
+| --- | --- | --- |
+| Specials (vendor promos) | done | `specials` schema + routes; owner/admin create, auto-expiry by `ends_at`. |
+| Product reviews | done | verified-purchase gate + UNIQUE(product, order); platform writes none. |
+| Quoted service booking | done | `quotes` schema + `/api/quotes/*` lifecycle (pending → viewed → responded → accepted/declined; 30-day expiry sweep); console UI on `#/quotes` and inside the Retailer tab. Accepting a quote deliberately creates **no** order/money flow yet. |
 
 ## Milestone 5 — international gifting
 

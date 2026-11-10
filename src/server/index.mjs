@@ -19,6 +19,7 @@ import { sweepExpired } from './lib/reservation.mjs';
 import { logError } from './lib/errorlog.mjs';
 import { errorRouter } from './routes/errors.mjs';
 import { legalRouter } from './routes/legal.mjs';
+import { quoteRouter, sweepExpiredQuotes } from './routes/quotes.mjs';
 import { startNotifierWorker } from './lib/notifier.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -72,6 +73,7 @@ app.use('/api/retailer', retailerRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api', catalogRouter);
+app.use('/api/quotes', quoteRouter);
 app.use('/legal', legalRouter);
 
 app.use(express.static(staticRoot));
@@ -101,7 +103,10 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) });
 });
 
-setInterval(() => sweepExpired(), 60_000).unref();
+setInterval(() => {
+  sweepExpired();
+  sweepExpiredQuotes();
+}, 60_000).unref();
 startNotifierWorker();
 
 const PORT = +(process.env.PORT || 3000);

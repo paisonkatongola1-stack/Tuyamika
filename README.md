@@ -94,6 +94,7 @@ Seed demo data: Zulwazi Crafts store (products K85–K125), guest share link
 - `GET|POST /api/products`, `GET /api/categories`, `GET|POST /api/products/:id/reviews` (verified buyers only)
 - `GET|POST|PATCH /api/registries`, `POST|DELETE /api/registries/:id/items`
 - `GET|POST|PATCH /api/events`, `POST /api/events/:id/rsvp` (private events invite-only), `POST|PATCH /api/events/:id/tasks`
+- `GET|POST|PATCH|DELETE /api/quotes` (service quotes: request → respond → accept/decline, 30-day expiry)
 - `GET|POST|DELETE /api/specials` (vendor promos, owner/admin)
 - `GET|PATCH /api/fulfilment`, `GET /api/fulfilment/mine`, `GET /api/orders/track/:ref` (public-by-ref)
 - `GET /api/r/:token` (guest JSON), `GET /r/:token` (guest HTML)

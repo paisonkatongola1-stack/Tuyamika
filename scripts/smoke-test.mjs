@@ -327,7 +327,44 @@ log('deleted account tombstoned (name/email gone)',
 const delReg = await api('GET', '/api/registries', { token: delTok });
 log('owned registries erased at deletion', `${delReg.json.registries?.length}`, delReg.json.registries?.length === 0);
 
+// 20 quoted service booking (milestone 4)
+// provider login from seed
+const provLogin = await api('POST', '/api/auth/login', { body: { email: 'busi@events.africa', password: 'events-demo-2026' } });
+const provTok = provLogin.json.token;
+const bizList = await api('GET', '/api/retailer/businesses', { token: provTok });
+const svcBiz = bizList.json.businesses?.find((b) => b.type === 'service_provider');
+const qBad = await api('POST', '/api/quotes', { token: ownerToken, body: { provider_id: svcBiz?.id, event_type: 'wedding catering', requirements: '100 guests, outdoor' } });
+log('quote created (customer)', qBad.status, qBad.status === 201 && qBad.json.quote?.status === 'pending');
+const qDup = await api('POST', '/api/quotes', { token: ownerToken, body: { provider_id: svcBiz?.id, event_type: 'wedding catering', requirements: 'dup' } });
+log('duplicate open quote blocked', qDup.status, qDup.status === 409);
+const qNoAuth = await api('POST', '/api/quotes', { body: { provider_id: svcBiz?.id, event_type: 'x', requirements: 'x' } });
+log('quote requires auth', qNoAuth.status, qNoAuth.status === 401);
+const qListProv = await api('GET', '/api/quotes', { token: provTok });
+log('provider sees request (pending)', qListProv.status, (qListProv.json.quotes || []).some((x) => x.id === qBad.json.quote?.id));
+const qDetail = await api('GET', `/api/quotes/${qBad.json.quote?.id}`, { token: provTok });
+log('provider view flips pending->viewed', qDetail.status, qDetail.json.quote?.status === 'viewed');
+const qResp = await api('POST', `/api/quotes/${qBad.json.quote?.id}/response`, { token: provTok, body: { price_cents: 250000, message: 'Full catering + decor package' } });
+log('provider responds', qResp.status, qResp.status === 200 && qResp.json.quote?.status === 'responded');
+const qRespMoney = JSON.parse(qResp.json.quote?.response || '{}');
+log('response carries quoted price', qRespMoney.price_cents, qRespMoney.price_cents === 250000);
+const qNotif = await api('GET', '/api/notifications', { token: ownerToken });
+log('customer notified of response', qNotif.status, (qNotif.json.notifications || []).some((n) => n.trigger === 'quote.responded'));
+const qAcceptByProv = await api('POST', `/api/quotes/${qBad.json.quote?.id}/accept`, { token: provTok });
+log('provider cannot accept own quote', qAcceptByProv.status, qAcceptByProv.status === 403);
+const qAccept = await api('POST', `/api/quotes/${qBad.json.quote?.id}/accept`, { token: ownerToken });
+log('customer accepts quote', qAccept.status, qAccept.status === 200 && qAccept.json.quote?.status === 'accepted');
+const qAgain = await api('POST', `/api/quotes/${qBad.json.quote?.id}/response`, { token: provTok, body: { price_cents: 1 } });
+log('closed quote immutable', qAgain.status, qAgain.status === 409);
+const qDecline = await api('POST', '/api/quotes', { token: ownerToken, body: { provider_id: svcBiz?.id, event_type: 'photography', requirements: '2 shooters' } });
+await api('POST', `/api/quotes/${qDecline.json.quote?.id}/response`, { token: provTok, body: { price_cents: 90000 } });
+const qDecl = await api('POST', `/api/quotes/${qDecline.json.quote?.id}/accept?decision=declined`, { token: ownerToken });
+log('decline path works', qDecl.status, qDecl.status === 200 && qDecl.json.quote?.status === 'declined');
+const qOtherUser = await api('POST', '/api/auth/signup', { body: { email: `othq-${t}@t.test`, password: 'password123', full_name: 'Quote Snooper', consent: true } });
+const qSnoop = await api('GET', `/api/quotes/${qBad.json.quote?.id}`, { token: qOtherUser.json.token });
+log('foreign quote invisible', qSnoop.status, qSnoop.status === 404);
+
 const failed = results.filter((x) => !x.ok);
+
 
 console.log('----');
 console.log(`${results.length - failed.length}/${results.length} passed${failed.length ? `, failed: ${failed.map((f) => f.name).join(', ')}` : ''}`);
