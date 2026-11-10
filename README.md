@@ -195,8 +195,10 @@ commercial Sawa Erma licence must be confirmed before release; drop the TTF in
 
 ## Compliance & privacy (what is enforced in code)
 
-Documented for users at `/legal/privacy|terms|refund|cookies` and for operators in
-`THIRD_PARTY.md`; the runtime behaviours behind those pages:
+Full checklist mapping every requirement to implementation + verification:
+[docs/compliance.md](docs/compliance.md). Documented for users at
+`/legal/privacy|terms|refund|cookies` and for operators in `THIRD_PARTY.md`;
+the runtime behaviours behind those pages:
 
 | Requirement | Implementation |
 |---|---|
